@@ -86,7 +86,8 @@ async def chat_endpoint(websocket: WebSocket, session_id: int, db: Session = Dep
             history = session.messages_json or []
             try:
                 reply = await _run_chat(message, building_context, history)
-            except Exception:
+            except Exception as e:
+                print(f"[chat] NeMoTron error: {type(e).__name__}: {e}")
                 reply = _fallback_chat(message)
 
             history.append({"role": "user", "content": message})

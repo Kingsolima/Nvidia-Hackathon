@@ -232,7 +232,8 @@ async def get_impact(building_id: int, db: Session = Depends(get_db)):
             result["economic"]["score"]             = xgb_economic["score"]
             result["economic"]["description"]       = xgb_economic["description"]
             result["economic"]["construction_jobs"] = xgb_economic.get("construction_jobs")
-    except Exception:
+    except Exception as e:
+        print(f"[impact] NeMoTron error: {type(e).__name__}: {e}")
         fallback = _fallback_impact(spec)
         result = {
             "environmental": {
