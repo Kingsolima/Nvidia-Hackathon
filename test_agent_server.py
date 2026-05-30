@@ -18,7 +18,6 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from rendering.building_renderer import render_building
 from rendering.ai_renderer import generate_ai_image
 import base64
 
@@ -318,31 +317,26 @@ class GenerateRequest(BaseModel):
 @app.post("/generate/building-image")
 def generate(req: GenerateRequest):
     floors = max(1, min(req.floors, 100))
-    png = render_building(req.building_type, req.style, floors, req.size)
+    png, renderer = generate_ai_image(
+        style         = req.style,
+        building_type = req.building_type,
+        floors        = floors,
+        size          = req.size,
+    )
+    if png is None:
+        return {"error": "All image renderers failed. Check your OPENAI_API_KEY in .env."}, 503
+
     b64 = base64.b64encode(png).decode()
-
-    floor_heights = {"skyscraper": 14, "house": 80, "suburban_building": 18}
-    size_mults    = {"small": 0.72, "medium": 1.0, "large": 1.32}
-    base_widths   = {"skyscraper": 190, "house": 280, "suburban_building": 360}
-    fh = floor_heights.get(req.building_type, 14)
-    sm = size_mults.get(req.size, 1.0)
-    bw = base_widths.get(req.building_type, 190)
-
     return {
         "image_b64":  b64,
-        "image_path": f"(in-memory — {req.building_type}_{req.style}_{floors}fl_{req.size}.png)",
+        "renderer":   renderer,
         "metadata": {
-            "building_type":    req.building_type,
-            "style":            req.style,
-            "floors":           floors,
-            "size":             req.size,
-            "canvas_px":        "800×1000",
-            "background_hex":   "#E0E0E0",
-            "tower_width_px":   int(bw * sm),
-            "tower_height_px":  floors * fh,
-            "floor_height_px":  fh,
-            "ground_y_px":      870,
-            "consistency_rule": "width fixed per size; height = floors × floor_height_px",
+            "building_type":  req.building_type,
+            "style":          req.style,
+            "floors":         floors,
+            "size":           req.size,
+            "canvas_px":      "800×1000",
+            "background_hex": "#D3D3D3",
         },
     }
 
@@ -365,8 +359,7 @@ def generate_from_prompt(req: PromptRequest):
         user_description = req.prompt,
     )
     if png is None:
-        png      = render_building(**params, user_description=req.prompt)
-        renderer = "PIL (deterministic)"
+        return {"error": "All image renderers failed. Check your OPENAI_API_KEY in .env."}, 503
 
     b64 = base64.b64encode(png).decode()
 
