@@ -36,14 +36,31 @@ def _load_layers():
             continue
         try:
             gdf = gpd.read_parquet(path)
+        except Exception:
+            try:
+                import pandas as pd
+                df = pd.read_parquet(path)
+                if "geometry" in df.columns:
+                    from shapely import wkt as _wkt
+                    df["geometry"] = df["geometry"].apply(
+                        lambda g: _wkt.loads(str(g)) if g and str(g).strip() else None
+                    )
+                    gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
+                else:
+                    _layers[key] = None
+                    continue
+            except Exception as e2:
+                print(f"[spatial] WARNING: could not load {fname}: {e2}")
+                _layers[key] = None
+                continue
+        try:
             if gdf.crs is None:
                 gdf = gdf.set_crs("EPSG:4326")
             elif gdf.crs.to_epsg() != 4326:
                 gdf = gdf.to_crs("EPSG:4326")
-            _layers[key] = gdf
-        except Exception as e:
-            print(f"[spatial] WARNING: could not load {fname}: {e}")
-            _layers[key] = None
+        except Exception:
+            pass
+        _layers[key] = gdf
 
 
 _load_layers()

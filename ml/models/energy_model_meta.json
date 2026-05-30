@@ -1,0 +1,24 @@
+{
+  "features": [
+    "total_gfa_m2",
+    "structure_type_enc",
+    "EST_CONST_COST",
+    "ASSEMBLY",
+    "INSTITUTIONAL",
+    "RESIDENTIAL",
+    "BUSINESS_AND_PERSONAL_SERVICES",
+    "MERCANTILE",
+    "INDUSTRIAL"
+  ],
+  "target": "log1p_annual_kwh_est",
+  "ashrae_benchmarks_kwh_per_m2": {
+    "RESIDENTIAL": 130,
+    "ASSEMBLY": 250,
+    "INSTITUTIONAL": 280,
+    "BUSINESS_AND_PERSONAL_SERVICES": 200,
+    "MERCANTILE": 320,
+    "INDUSTRIAL": 180
+  },
+  "mae": 0.0117,
+  "r2": 0.9992
+}
