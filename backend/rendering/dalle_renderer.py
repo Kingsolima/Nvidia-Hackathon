@@ -1,9 +1,8 @@
 """
-DALL-E 3 building image generator.
+DALL-E building image generator.
 
-Takes the user's raw description and generates a 2D head-on architectural
-elevation — no rigid type mapping, the user gets exactly what they asked for.
-Background is always solid #D3D3D3.
+Tries gpt-image-1 first (best quality), falls back to dall-e-3 if
+gpt-image-1 is unavailable (billing tier / access restriction).
 
 Required .env:
   OPENAI_API_KEY=sk-...   (platform.openai.com → API keys)
@@ -54,37 +53,41 @@ def generate_dalle_image(
     size: str = "",
 ) -> Optional[bytes]:
     """
-    Generate a 2D head-on building image via gpt-image-1 (DALL-E 3).
-    Uses the raw user_description so the result matches exactly what was asked for.
+    Generate a 2D head-on building image via OpenAI image generation.
+    Tries gpt-image-1 first, falls back to dall-e-3 if unavailable.
     Returns PNG bytes on a #D3D3D3 canvas, or None if key missing / call fails.
     """
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key or api_key == "your_openai_api_key_here":
+    if not api_key or "your_" in api_key:
         return None
 
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
-
         prompt = _build_prompt(user_description)
 
-        result = client.images.generate(
-            model="gpt-image-1",
-            prompt=prompt,
-            size="1024x1536",
-            quality="high",
-            output_format="png",
-            n=1,
-        )
+        # Try models in order — stop at the first that returns an image
+        candidates = [
+            ("gpt-image-1",      {"size": "1024x1536", "quality": "high",     "output_format": "png"}),
+            ("gpt-image-2",      {"size": "1024x1536", "quality": "high",     "output_format": "png"}),
+            ("gpt-image-1-mini", {"size": "1024x1536", "quality": "medium",   "output_format": "png"}),
+            ("chatgpt-image-latest", {"size": "1024x1536", "quality": "high", "output_format": "png"}),
+        ]
 
-        b64 = result.data[0].b64_json
-        if b64:
-            return _normalise(base64.b64decode(b64))
-
-        image_url = result.data[0].url
-        raw = httpx.get(image_url, timeout=30.0).content
-        return _normalise(raw)
+        for model_name, kwargs in candidates:
+            try:
+                result = client.images.generate(model=model_name, prompt=prompt, n=1, **kwargs)
+                b64 = result.data[0].b64_json
+                if b64:
+                    return _normalise(base64.b64decode(b64))
+                url = result.data[0].url
+                if url:
+                    return _normalise(httpx.get(url, timeout=30.0).content)
+            except Exception as e:
+                print(f"[dalle_renderer] {model_name} failed: {str(e)[:100]}")
+                continue
 
     except Exception as e:
-        print(f"[dalle_renderer] DALL-E 3 failed: {e}")
-        return None
+        print(f"[dalle_renderer] DALL-E failed: {e}")
+
+    return None
