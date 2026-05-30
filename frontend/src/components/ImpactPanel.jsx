@@ -199,14 +199,31 @@ export function ImpactPanel({ building, impact, loading, loadingMessage, error, 
               )}
             </div>
 
-            {/* XGBoost callout */}
+            {/* Model provenance + transit discount */}
             <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: 6 }}>
                 <span style={{ fontSize: '10px', color: 'var(--text-3)' }}>Powered by</span>
-                <span className="tag tag-green">XGBoost ML</span>
+                <span className="tag tag-green">XGBoost + ITE</span>
                 <span className="tag tag-cyan">NeMoTron DGX Spark</span>
+                <span className="tag tag-dim">Ontario EWRB</span>
                 <span className="tag tag-dim">Toronto Open Data</span>
               </div>
+              {/* Transit discount badge — shown when TTC proximity reduces traffic */}
+              {impact?.traffic?.transit_tier && impact.traffic.transit_tier !== 'none' && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  fontSize: '11px', color: 'var(--score-low)',
+                  background: 'rgba(74,222,128,0.08)',
+                  border: '1px solid rgba(74,222,128,0.2)',
+                  borderRadius: 'var(--radius)', padding: '5px 10px', marginTop: 4,
+                }}>
+                  <span style={{ fontWeight: 600 }}>TTC proximity discount applied</span>
+                  <span style={{ color: 'var(--text-2)' }}>
+                    — {impact.traffic.transit_tier === 'transit_within_400m' ? '−30%' : '−15%'} vehicle trips
+                    ({impact.traffic.daily_trips_base?.toLocaleString()} → {impact.traffic.daily_trips?.toLocaleString()}/day)
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Chat toggle */}

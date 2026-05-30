@@ -163,29 +163,56 @@ def test_impact_cached_on_second_call():
 
 def test_xgb_energy_predict():
     from xgb_models import predict_energy
-    result = predict_energy({"type": "Residential (High-rise)", "floors": 30, "footprint_m2": 2000})
+    result = predict_energy({"type": "residential (high-rise)", "floors": 30, "footprint_m2": 2000, "units_per_floor": 10})
     if result is None:
         pytest.skip("XGBoost energy model not trained yet")
     assert "score" in result
     assert "annual_kwh" in result
+    assert "intensity_kwh_per_m2" in result
     assert 0 <= result["score"] <= 100
     assert result["annual_kwh"] > 0
 
 
-def test_xgb_traffic_predict():
-    from xgb_models import predict_traffic
-    result = predict_traffic({"type": "Residential (High-rise)", "floors": 30, "footprint_m2": 2000})
+def test_xgb_energy_gas_predict():
+    from xgb_models import predict_energy
+    result = predict_energy({"type": "residential (high-rise)", "floors": 30, "footprint_m2": 2000, "units_per_floor": 10})
     if result is None:
-        pytest.skip("XGBoost traffic model not trained yet")
+        pytest.skip("XGBoost energy model not trained yet")
+    # Gas model is optional — if loaded, annual_gas_gj should be positive
+    if result.get("annual_gas_gj") is not None:
+        assert result["annual_gas_gj"] > 0
+
+
+def test_ite_traffic_predict():
+    # Traffic is now pure ITE formula (no XGBoost model file needed)
+    from xgb_models import predict_traffic
+    result = predict_traffic({"type": "residential (high-rise)", "floors": 30, "footprint_m2": 2000, "units_per_floor": 10})
+    assert result is not None
     assert "score" in result
     assert "daily_trips" in result
+    assert "daily_trips_base" in result
+    assert "transit_tier" in result
     assert 0 <= result["score"] <= 100
     assert result["daily_trips"] >= 0
 
 
+def test_ite_transit_discount_applied():
+    # Buildings near TTC should get fewer trips than far ones
+    from xgb_models import predict_traffic
+    # King & Spadina — dense TTC coverage
+    near = predict_traffic({"type": "residential (high-rise)", "floors": 30, "footprint_m2": 2000,
+                            "units_per_floor": 10, "lat": 43.6445, "lng": -79.3979})
+    # Without coordinates — no discount applied
+    far = predict_traffic({"type": "residential (high-rise)", "floors": 30, "footprint_m2": 2000, "units_per_floor": 10})
+    assert near is not None and far is not None
+    # Near TTC: transit_tier != "none", daily_trips < daily_trips_base
+    if near["transit_tier"] != "none":
+        assert near["daily_trips"] < near["daily_trips_base"]
+
+
 def test_xgb_economic_predict():
     from xgb_models import predict_economic
-    result = predict_economic({"type": "Residential (High-rise)", "floors": 30, "footprint_m2": 2000})
+    result = predict_economic({"type": "residential (high-rise)", "floors": 30, "footprint_m2": 2000})
     if result is None:
         pytest.skip("XGBoost economic model not trained yet")
     assert "score" in result
@@ -194,14 +221,13 @@ def test_xgb_economic_predict():
     assert result["construction_jobs"] >= 0
 
 
-def test_xgb_commercial_vs_residential_traffic():
+def test_ite_commercial_vs_residential_traffic():
+    # Retail has much higher ITE rate than high-rise residential
     from xgb_models import predict_traffic
-    r1 = predict_traffic({"type": "Retail / Podium",          "floors": 5,  "footprint_m2": 3000})
-    r2 = predict_traffic({"type": "Residential (High-rise)", "floors": 30, "footprint_m2": 2000})
-    if r1 is None or r2 is None:
-        pytest.skip("XGBoost traffic model not trained yet")
-    # Retail has much higher ITE trip rate than residential
-    assert r1["daily_trips"] > r2["daily_trips"]
+    r1 = predict_traffic({"type": "retail / podium",           "floors": 5,  "footprint_m2": 3000})
+    r2 = predict_traffic({"type": "residential (high-rise)",   "floors": 30, "footprint_m2": 2000, "units_per_floor": 10})
+    assert r1 is not None and r2 is not None
+    assert r1["daily_trips_base"] > r2["daily_trips_base"]
 
 
 # ── Image generation ──────────────────────────────────────────────────────────
