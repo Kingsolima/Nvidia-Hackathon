@@ -1,12 +1,18 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import ReactMapGL, { Source, Layer, Popup } from 'react-map-gl/mapbox'
+import ReactMapGL, { Source, Layer, NavigationControl, Popup } from 'react-map-gl/mapbox'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
 const TORONTO = { longitude: -79.3832, latitude: 43.6532, zoom: 13.5, pitch: 45, bearing: -10 }
 
-// Existing Toronto 3D buildings layer
-const EXISTING_BUILDINGS_LAYER = {
+// Map styles per mode
+const MAP_STYLES = {
+  builder: 'mapbox://styles/mapbox/dark-v11',
+  citizen: 'mapbox://styles/mapbox/light-v11',
+}
+
+// 3D buildings layer — dark (builder) theme
+const BUILDINGS_DARK = {
   id: 'existing-3d-buildings',
   source: 'composite',
   'source-layer': 'building',
@@ -14,17 +20,45 @@ const EXISTING_BUILDINGS_LAYER = {
   type: 'fill-extrusion',
   minzoom: 14,
   paint: {
-    'fill-extrusion-color': '#12121e',
-    'fill-extrusion-height': ['get', 'height'],
-    'fill-extrusion-base': ['get', 'min_height'],
+    'fill-extrusion-color': [
+      'interpolate', ['linear'], ['get', 'height'],
+      0,   '#0f1624',
+      50,  '#131d2e',
+      100, '#162036',
+      200, '#1a2540',
+    ],
+    'fill-extrusion-height':  ['get', 'height'],
+    'fill-extrusion-base':    ['get', 'min_height'],
+    'fill-extrusion-opacity': 0.9,
+  },
+}
+
+// 3D buildings layer — light (citizen) theme
+const BUILDINGS_LIGHT = {
+  id: 'existing-3d-buildings',
+  source: 'composite',
+  'source-layer': 'building',
+  filter: ['==', 'extrude', 'true'],
+  type: 'fill-extrusion',
+  minzoom: 14,
+  paint: {
+    'fill-extrusion-color': [
+      'interpolate', ['linear'], ['get', 'height'],
+      0,   '#d8dde8',
+      50,  '#c8cede',
+      100, '#b8c0d4',
+      200, '#a8b2c8',
+    ],
+    'fill-extrusion-height':  ['get', 'height'],
+    'fill-extrusion-base':    ['get', 'min_height'],
     'fill-extrusion-opacity': 0.85,
   },
 }
 
-// Placed building extrusion (cyan highlight)
-function placedBuildingSource(coord, floors, footprintM2) {
+// Converts footprint m² → approximate degree offset for the square polygon
+function placedBuildingGeo(coord, floors, footprintM2) {
   if (!coord) return null
-  const side = Math.sqrt(footprintM2) / 111320   // approx degrees
+  const side = Math.sqrt(footprintM2) / 111320
   const { lat, lng } = coord
   return {
     type: 'Feature',
@@ -42,9 +76,9 @@ function placedBuildingSource(coord, floors, footprintM2) {
   }
 }
 
-// Existing building markers (from /buildings endpoint)
-function ExistingMarkers({ buildings, onSelect, selected }) {
+function ExistingMarkers({ buildings, onSelect, selected, mode }) {
   if (!buildings?.length) return null
+  const isDark = mode === 'builder'
   return buildings.map(b => (
     <Popup
       key={b.id}
@@ -53,33 +87,45 @@ function ExistingMarkers({ buildings, onSelect, selected }) {
       anchor="bottom"
       closeButton={false}
       closeOnClick={false}
-      offset={[0, -4]}
+      offset={[0, -6]}
     >
       <div
         onClick={() => onSelect(b)}
         style={{
           cursor: 'pointer',
-          padding: '4px 0',
-          minWidth: 140,
-          borderLeft: `2px solid ${selected?.id === b.id ? 'var(--cyan)' : 'rgba(255,255,255,0.2)'}`,
+          padding: '6px 4px 4px',
+          minWidth: 150,
+          borderLeft: `2px solid ${selected?.id === b.id ? 'var(--cyan)' : 'var(--border-2)'}`,
           paddingLeft: 8,
         }}
       >
-        <div style={{ fontWeight: 600, fontSize: '11px', color: 'var(--text)', marginBottom: 2 }}>
+        <div style={{ fontWeight: 600, fontSize: '12px', color: 'var(--text)', marginBottom: 2 }}>
           {b.name || `Building #${b.id}`}
         </div>
-        <div style={{ fontSize: '10px', color: 'var(--text-2)' }}>
+        <div style={{ fontSize: '11px', color: 'var(--text-2)', marginBottom: 4 }}>
           {b.type} · {b.floors}F
+        </div>
+        <div style={{
+          display: 'inline-block',
+          fontSize: '10px',
+          fontWeight: 600,
+          padding: '1px 6px',
+          borderRadius: '3px',
+          background: selected?.id === b.id ? 'var(--cyan)' : 'var(--surface-2)',
+          color: selected?.id === b.id ? '#000' : 'var(--text-2)',
+          border: '1px solid var(--border)',
+        }}>
+          {b.status || 'Under Review'}
         </div>
       </div>
     </Popup>
   ))
 }
 
-export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onSelectExisting, readOnly = false }) {
-  const mapRef  = useRef(null)
-  const [cursor, setCursor] = useState(readOnly ? 'default' : 'crosshair')
+export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onSelectExisting, readOnly = false, mode = 'builder' }) {
+  const mapRef = useRef(null)
   const [selectedExisting, setSelectedExisting] = useState(null)
+  const isDark = mode === 'builder'
 
   const handleClick = useCallback((e) => {
     if (readOnly || !onCoordSelect) return
@@ -87,26 +133,40 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
     onCoordSelect({ lat, lng })
   }, [onCoordSelect, readOnly])
 
-  // Fly to coord when placed
+  // Fly to placed coord
   useEffect(() => {
     if (!coord || !mapRef.current) return
     mapRef.current.flyTo({
       center: [coord.lng, coord.lat],
-      zoom: Math.max(mapRef.current.getZoom(), 15),
-      duration: 800,
+      zoom: Math.max(mapRef.current.getZoom(), 15.5),
+      pitch: 55,
+      duration: 900,
+      essential: true,
     })
   }, [coord])
+
+  // Sync map style when mode switches
+  useEffect(() => {
+    if (!mapRef.current) return
+    const map = mapRef.current.getMap?.()
+    if (map) map.setStyle(MAP_STYLES[mode])
+  }, [mode])
 
   const handleSelectExisting = (b) => {
     setSelectedExisting(b)
     onSelectExisting?.(b)
-    mapRef.current?.flyTo({ center: [b.lng, b.lat], zoom: 15, duration: 600 })
+    mapRef.current?.flyTo({ center: [b.lng, b.lat], zoom: 15.5, pitch: 50, duration: 700 })
   }
 
-  // Build placed building GeoJSON
   const placedGeo = coord && buildingForm
-    ? placedBuildingSource(coord, buildingForm.floors || 24, buildingForm.footprint_m2 || 2000)
+    ? placedBuildingGeo(coord, buildingForm.floors || 24, buildingForm.footprint_m2 || 2000)
     : null
+
+  const hintBg    = isDark ? 'rgba(10,10,15,0.85)'     : 'rgba(245,246,250,0.90)'
+  const hintColor = isDark ? 'var(--text-2)'            : 'var(--text-2)'
+  const activeBg  = isDark ? 'rgba(0,212,255,0.12)'    : 'rgba(0,119,204,0.10)'
+  const activeBorder = isDark ? 'rgba(0,212,255,0.35)' : 'rgba(0,119,204,0.35)'
+  const activeColor  = isDark ? 'var(--cyan)'           : '#0077cc'
 
   return (
     <div style={{ flex: 1, position: 'relative' }}>
@@ -115,13 +175,15 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={TORONTO}
         style={{ width: '100%', height: '100%' }}
-        mapStyle="mapbox://styles/mapbox/dark-v11"
-        cursor={cursor}
+        mapStyle={MAP_STYLES[mode]}
+        cursor={readOnly ? 'default' : 'crosshair'}
         onClick={handleClick}
-        onMouseEnter={() => setCursor('crosshair')}
       >
-        {/* Existing Toronto 3D buildings */}
-        <Layer {...EXISTING_BUILDINGS_LAYER} />
+        {/* Navigation controls */}
+        <NavigationControl position="top-right" visualizePitch />
+
+        {/* Toronto 3D buildings — style switches with mode */}
+        <Layer {...(isDark ? BUILDINGS_DARK : BUILDINGS_LIGHT)} />
 
         {/* Placed building extrusion */}
         {placedGeo && (
@@ -130,10 +192,21 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
               id="placed-building-fill"
               type="fill-extrusion"
               paint={{
-                'fill-extrusion-color': '#00d4ff',
-                'fill-extrusion-height': ['get', 'height'],
-                'fill-extrusion-base': ['get', 'base'],
-                'fill-extrusion-opacity': 0.65,
+                'fill-extrusion-color':   isDark ? '#00d4ff' : '#0077cc',
+                'fill-extrusion-height':  ['get', 'height'],
+                'fill-extrusion-base':    ['get', 'base'],
+                'fill-extrusion-opacity': 0.72,
+              }}
+            />
+            {/* Outline glow */}
+            <Layer
+              id="placed-building-outline"
+              type="fill-extrusion"
+              paint={{
+                'fill-extrusion-color':   isDark ? '#00d4ff' : '#0077cc',
+                'fill-extrusion-height':  ['get', 'height'],
+                'fill-extrusion-base':    ['get', 'base'],
+                'fill-extrusion-opacity': 0.15,
               }}
             />
           </Source>
@@ -144,47 +217,45 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
           buildings={existingBuildings}
           onSelect={handleSelectExisting}
           selected={selectedExisting}
+          mode={mode}
         />
       </ReactMapGL>
 
-      {/* Map instructions overlay */}
-      {!coord && (
+      {/* Bottom hint pill — builder mode */}
+      {!readOnly && !coord && (
         <div style={{
-          position: 'absolute',
-          bottom: 24,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(10,10,15,0.85)',
-          border: '1px solid var(--border)',
-          borderRadius: '20px',
-          padding: '8px 18px',
-          fontSize: '12px',
-          color: 'var(--text-2)',
-          pointerEvents: 'none',
-          backdropFilter: 'blur(8px)',
-          whiteSpace: 'nowrap',
+          position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: hintBg, border: '1px solid var(--border)',
+          borderRadius: '20px', padding: '8px 20px',
+          fontSize: '12px', color: hintColor,
+          pointerEvents: 'none', backdropFilter: 'blur(10px)', whiteSpace: 'nowrap',
         }}>
           Click anywhere on the map to place a building
         </div>
       )}
 
-      {coord && (
+      {!readOnly && coord && (
         <div style={{
-          position: 'absolute',
-          bottom: 24,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(0,212,255,0.12)',
-          border: '1px solid rgba(0,212,255,0.3)',
-          borderRadius: '20px',
-          padding: '8px 18px',
-          fontSize: '12px',
-          color: 'var(--cyan)',
-          pointerEvents: 'none',
-          backdropFilter: 'blur(8px)',
-          whiteSpace: 'nowrap',
+          position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: activeBg, border: `1px solid ${activeBorder}`,
+          borderRadius: '20px', padding: '8px 20px',
+          fontSize: '12px', color: activeColor,
+          pointerEvents: 'none', backdropFilter: 'blur(10px)', whiteSpace: 'nowrap',
         }}>
           Building placed — click Analyze Impact in the sidebar
+        </div>
+      )}
+
+      {/* Citizen hint */}
+      {readOnly && !selectedExisting && (
+        <div style={{
+          position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: hintBg, border: '1px solid var(--border)',
+          borderRadius: '20px', padding: '8px 20px',
+          fontSize: '12px', color: hintColor,
+          pointerEvents: 'none', backdropFilter: 'blur(10px)', whiteSpace: 'nowrap',
+        }}>
+          Click any building marker to explore its impact
         </div>
       )}
     </div>

@@ -84,6 +84,7 @@ export default function App() {
           existingBuildings={existing}
           onSelectExisting={handleSelectExisting}
           readOnly={isCitizen}
+          mode={mode}
         />
 
         {/* ── BUILDER mode UI ── */}
