@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -75,15 +76,44 @@ Produce the JSON impact assessment."""
         temperature=0.3,
         max_tokens=1024,
     )
-    content = resp.choices[0].message.content.strip()
+    msg = resp.choices[0].message
+    content = (msg.content or "").strip()
+    # Some NeMoTron variants emit <think>...</think> before the JSON
+    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+    # Extract JSON — handle markdown fences or leading prose
+    raw = None
     if "```" in content:
         for part in content.split("```"):
             part = part.strip().lstrip("json").strip()
-            try:
-                return json.loads(part)
-            except json.JSONDecodeError:
-                continue
-    return json.loads(content)
+            if part.startswith("{"):
+                try:
+                    raw = json.loads(part)
+                    break
+                except json.JSONDecodeError:
+                    continue
+    if raw is None:
+        m = re.search(r"\{.*\}", content, re.DOTALL)
+        raw = json.loads(m.group() if m else content)
+
+    return _sanitize_impact(raw)
+
+
+def _sanitize_impact(data: dict) -> dict:
+    """Clamp scores to [0, 100] and trim descriptions so validation passes."""
+    DIMS = ["environmental", "traffic", "economic", "infrastructure", "housing"]
+    result = {}
+    for dim in DIMS:
+        d = data.get(dim, {})
+        try:
+            score = max(0, min(100, int(float(d.get("score", 50)))))
+        except (TypeError, ValueError):
+            score = 50
+        desc = str(d.get("description", "")).strip()[:900]
+        if not desc:
+            desc = f"Impact analysis for {dim} dimension."
+        result[dim] = {"score": score, "description": desc}
+    return result
 
 
 def _fallback_impact(building: dict) -> dict:
@@ -135,6 +165,33 @@ def list_buildings(db: Session = Depends(get_db)):
     return db.query(Building).all()
 
 
+@router.get("/{building_id}", response_model=BuildingOut)
+def get_building(building_id: int, db: Session = Depends(get_db)):
+    building = db.query(Building).filter(Building.id == building_id).first()
+    if not building:
+        raise HTTPException(status_code=404, detail="Building not found")
+    return building
+
+
+@router.delete("/{building_id}", status_code=204)
+def delete_building(building_id: int, db: Session = Depends(get_db)):
+    building = db.query(Building).filter(Building.id == building_id).first()
+    if not building:
+        raise HTTPException(status_code=404, detail="Building not found")
+    db.query(Impact).filter(Impact.building_id == building_id).delete()
+    db.delete(building)
+    db.commit()
+
+
+@router.delete("/{building_id}/impact", status_code=204)
+def clear_impact_cache(building_id: int, db: Session = Depends(get_db)):
+    """Force a fresh NeMoTron analysis on next GET /impact."""
+    deleted = db.query(Impact).filter(Impact.building_id == building_id).delete()
+    db.commit()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No cached impact for this building")
+
+
 @router.get("/{building_id}/impact", response_model=ImpactOut)
 async def get_impact(building_id: int, db: Session = Depends(get_db)):
     building = db.query(Building).filter(Building.id == building_id).first()
@@ -159,6 +216,7 @@ async def get_impact(building_id: int, db: Session = Depends(get_db)):
 
     try:
         result = await _run_nemotron(spec, spatial)
+        # XGBoost scores are more reliable — override NeMoTron where available.
         if xgb_energy:
             result["environmental"]["score"] = xgb_energy["score"]
             result["environmental"]["description"] = xgb_energy["description"]
