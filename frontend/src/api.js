@@ -1,5 +1,9 @@
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8001'
-const WS_BASE  = API_BASE.replace(/^http/, 'ws')
+// Use Vite proxy (/api → backend) in dev to avoid CORS.
+// In prod (deployed or DGX Spark), VITE_API_BASE points directly to the server.
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const WS_BASE  = API_BASE.startsWith('/')
+  ? `ws://${window.location.host}/api`
+  : API_BASE.replace(/^http/, 'ws')
 
 // ── Buildings ──────────────────────────────────────────────────────────────
 
