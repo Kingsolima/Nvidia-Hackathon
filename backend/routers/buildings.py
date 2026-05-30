@@ -75,10 +75,14 @@ Produce the JSON impact assessment."""
         ],
         temperature=0.3,
         max_tokens=1024,
+        extra_body={"think": False},
     )
     msg = resp.choices[0].message
+    # Thinking models may return null content with response in reasoning field
     content = (msg.content or "").strip()
-    # Some NeMoTron variants emit <think>...</think> before the JSON
+    if not content:
+        content = (getattr(msg, "reasoning", None) or "").strip()
+    # Strip any remaining <think>...</think> blocks
     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
     # Extract JSON — handle markdown fences or leading prose

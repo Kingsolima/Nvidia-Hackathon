@@ -38,8 +38,14 @@ async def _run_chat(message: str, building_context: dict | None, history: list) 
         messages=messages,
         temperature=0.5,
         max_tokens=800,
+        extra_body={"think": False},
     )
-    return resp.choices[0].message.content or resp.choices[0].message.reasoning or ""
+    msg = resp.choices[0].message
+    # Thinking models may return null content with response in reasoning field
+    text = (msg.content or "").strip()
+    if not text:
+        text = (getattr(msg, "reasoning", None) or "").strip()
+    return text
 
 
 def _fallback_chat(message: str) -> str:
