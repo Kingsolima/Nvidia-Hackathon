@@ -5,12 +5,16 @@ returns structured scores and descriptions for each impact dimension.
 
 import os
 import json
-import httpx
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 load_dotenv()
 
-NEMORON_URL = os.getenv("NEMORON_URL", "http://localhost:8000")
+MODEL_URL   = os.getenv("MODEL_URL",   "http://localhost:11434/v1")
+MODEL_NAME  = os.getenv("MODEL_NAME",  "nemotron-3-super:latest")
+NGC_API_KEY = os.getenv("NGC_API_KEY", "not-needed")
+
+_client = AsyncOpenAI(base_url=MODEL_URL, api_key=NGC_API_KEY)
 
 SYSTEM_PROMPT = """You are an urban planning AI analyst for the city of Toronto.
 Given a proposed building's specifications and nearby geospatial context data,
@@ -47,31 +51,25 @@ Nearby Context (within 500m):
 Produce the impact assessment JSON.
 """
 
-    payload = {
-        "model": "nvidia/llama-3.1-nemotron-70b-instruct",
-        "messages": [
+    response = await _client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
+            {"role": "user",   "content": user_prompt},
         ],
-        "temperature": 0.3,
-        "max_tokens": 1024,
-    }
+        temperature=0.3,
+        max_tokens=1024,
+    )
+    content = response.choices[0].message.content.strip()
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{NEMORON_URL}/v1/chat/completions",
-            json=payload,
-        )
-        response.raise_for_status()
-
-    content = response.json()["choices"][0]["message"]["content"]
-
-    # Strip markdown code fences if model wraps the JSON
-    content = content.strip()
-    if content.startswith("```"):
-        content = content.split("```")[1]
-        if content.startswith("json"):
-            content = content[4:]
+    # Strip markdown fences if model wraps the JSON
+    if "```" in content:
+        for part in content.split("```"):
+            part = part.strip().lstrip("json").strip()
+            try:
+                return json.loads(part)
+            except json.JSONDecodeError:
+                continue
 
     return json.loads(content)
 
