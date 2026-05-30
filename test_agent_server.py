@@ -365,7 +365,7 @@ def generate_from_prompt(req: PromptRequest):
         user_description = req.prompt,
     )
     if png is None:
-        png      = render_building(**params)
+        png      = render_building(**params, user_description=req.prompt)
         renderer = "PIL (deterministic)"
 
     b64 = base64.b64encode(png).decode()
