@@ -13,3 +13,5 @@ Pillow
 langgraph
 langchain
 langchain-openai
+langchain-google-genai
+google-genai
