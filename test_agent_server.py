@@ -14,7 +14,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
@@ -324,7 +324,7 @@ def generate(req: GenerateRequest):
         size          = req.size,
     )
     if png is None:
-        return {"error": "All image renderers failed. Check your OPENAI_API_KEY in .env."}, 503
+        return JSONResponse({"error": "All image renderers failed — check API keys in .env"}, status_code=503)
 
     b64 = base64.b64encode(png).decode()
     return {
@@ -359,7 +359,7 @@ def generate_from_prompt(req: PromptRequest):
         user_description = req.prompt,
     )
     if png is None:
-        return {"error": "All image renderers failed. Check your OPENAI_API_KEY in .env."}, 503
+        return JSONResponse({"error": "All image renderers failed — check API keys in .env"}, status_code=503)
 
     b64 = base64.b64encode(png).decode()
 
@@ -582,6 +582,14 @@ async function sendPrompt() {
       body: JSON.stringify({prompt}),
     });
     const data = await res.json();
+
+    if (!res.ok || data.error) {
+      st.textContent = data.error || 'Renderer error — check server logs';
+      dot.className = 'dot';
+      btn.disabled = false;
+      return;
+    }
+
     lastB64    = data.image_b64;
     lastParams = data.extracted_params;
 
@@ -589,8 +597,8 @@ async function sendPrompt() {
     const badge = document.getElementById('renderer-badge');
     badge.textContent = data.renderer || '';
     badge.style.display = 'inline-block';
-    badge.style.borderColor = data.renderer && data.renderer.includes('PIL') ? '' : 'var(--green)';
-    badge.style.color = data.renderer && data.renderer.includes('PIL') ? '' : 'var(--green)';
+    badge.style.borderColor = 'var(--green)';
+    badge.style.color = 'var(--green)';
 
     // Show image
     const img = document.getElementById('preview-img');
@@ -609,12 +617,12 @@ async function sendPrompt() {
     // Metadata
     const m = data.metadata;
     document.getElementById('meta-card').style.display = 'block';
-    document.getElementById('m-canvas').textContent = m.canvas_px;
-    document.getElementById('m-bg').textContent     = m.background_hex;
-    document.getElementById('m-w').textContent      = m.tower_width_px + 'px';
-    document.getElementById('m-h').textContent      = m.tower_height_px + 'px';
-    document.getElementById('m-fh').textContent     = m.floor_height_px + 'px';
-    document.getElementById('m-gy').textContent     = m.ground_y_px + 'px';
+    document.getElementById('m-canvas').textContent = m.canvas_px || '800×1000';
+    document.getElementById('m-bg').textContent     = m.background_hex || '#D3D3D3';
+    document.getElementById('m-w').textContent      = (m.tower_width_px  || '—') + 'px';
+    document.getElementById('m-h').textContent      = (m.tower_height_px || '—') + 'px';
+    document.getElementById('m-fh').textContent     = (m.floor_height_px || '—') + 'px';
+    document.getElementById('m-gy').textContent     = (m.ground_y_px     || '—') + 'px';
 
     dot.className = 'dot green';
     st.textContent = `${p.building_type.replace(/_/g,' ')} · ${p.style.replace(/_/g,' ')} · ${p.floors}fl`;
