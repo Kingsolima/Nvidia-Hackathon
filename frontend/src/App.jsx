@@ -39,8 +39,8 @@ export default function App() {
   const { emit: emit3D, reset: reset3D } = useBuilding3D(setRenderPayload)
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-mode', mode)
-  }, [mode])
+    document.documentElement.setAttribute('data-mode', 'builder')
+  }, [])
 
   useEffect(() => {
     getBuildings().then(setExisting).catch(() => {})
@@ -217,7 +217,7 @@ export default function App() {
 
         {!isCitizen && panelOpen && !selected && (
           <div style={{
-            position: 'absolute', top: 60, left: 16,
+            position: 'absolute', top: 8, left: 16,
             background: 'var(--bg-2)', border: '1px solid var(--border)',
             borderRadius: 'var(--radius)', padding: '8px 12px', zIndex: 10,
             display: 'flex', alignItems: 'center', gap: '10px',

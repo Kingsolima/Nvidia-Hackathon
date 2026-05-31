@@ -282,7 +282,7 @@ function ExistingMarkers({ buildings, onSelect, selected }) {
 export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onSelectExisting, readOnly = false, mode = 'builder', mapPreview = null, trellisGlbUrl = null, onBack = null, onFootprintChange = null }) {
   const mapRef = useRef(null)
   const [selectedExisting, setSelectedExisting] = useState(null)
-  const isDark = mode === 'builder'
+  const isDark = true
 
   // 2D/3D toggle state
   const [is3D, setIs3D] = useState(true)
@@ -510,21 +510,40 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
         {is3D ? '2D' : '3D'}
       </button>
 
-      {/* Draw / Redraw / Cancel button */}
-      {!readOnly && (
+      {/* Draw Buildable Area button — bottom center when no area drawn yet */}
+      {!readOnly && !rectCoord && !isDrawMode && (
+        <div style={{ position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 1 }}>
+          <button
+            onClick={() => { setIsDrawMode(v => !v); setIsBlocked(false) }}
+            style={{
+              background: hintBg,
+              color: accent,
+              border: `1.5px solid ${accentBorder}`,
+              borderRadius: 8, padding: '10px 20px',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              backdropFilter: 'blur(10px)', letterSpacing: '0.02em',
+              whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 17 }}>⬚</span> Draw Buildable Area
+          </button>
+        </div>
+      )}
+
+      {/* Cancel button — top left while drawing */}
+      {!readOnly && isDrawMode && (
         <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 1 }}>
           <button
             onClick={() => { setIsDrawMode(v => !v); setIsBlocked(false) }}
             style={{
-              background: isDrawMode ? accent : isBlocked ? 'rgba(255,68,68,0.15)' : hintBg,
-              color: isDrawMode ? '#000' : isBlocked ? '#ff6666' : accent,
-              border: `1.5px solid ${isBlocked ? 'rgba(255,68,68,0.5)' : accentBorder}`,
+              background: accent, color: '#000',
+              border: `1.5px solid ${accentBorder}`,
               borderRadius: 8, padding: '8px 16px',
               fontSize: 12, fontWeight: 600, cursor: 'pointer',
               backdropFilter: 'blur(10px)', letterSpacing: '0.02em',
             }}
           >
-            {isDrawMode ? '✕  Cancel' : rectCoord ? '⟳  Redraw Area' : '⬚  Draw Buildable Area'}
+            ✕  Cancel
           </button>
         </div>
       )}
@@ -543,6 +562,19 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
           }}>
             Zone overlaps an existing building — redraw to continue
           </div>
+          <button
+            onClick={() => { setIsDrawMode(v => !v); setIsBlocked(false) }}
+            style={{
+              background: 'rgba(255,68,68,0.15)', color: '#ff6666',
+              border: '1.5px solid rgba(255,68,68,0.5)',
+              borderRadius: 8, padding: '10px 20px',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              backdropFilter: 'blur(10px)', letterSpacing: '0.02em',
+              whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 17 }}>⟳</span> Redraw Area
+          </button>
         </div>
       )}
 
@@ -593,6 +625,21 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
               Building placed — describe it and click Analyze Impact
             </div>
           )}
+
+          {/* Redraw Area — bottom of panel, same visual position as Draw button */}
+          <button
+            onClick={() => { setIsDrawMode(v => !v); setIsBlocked(false) }}
+            style={{
+              background: hintBg, color: accent,
+              border: `1.5px solid ${accentBorder}`,
+              borderRadius: 8, padding: '10px 20px',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              backdropFilter: 'blur(10px)', letterSpacing: '0.02em',
+              whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 17 }}>⟳</span> Redraw Area
+          </button>
         </div>
       )}
 
@@ -617,20 +664,6 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
       )}
 
       {/* Hints */}
-      {!readOnly && !rectCoord && !isDrawMode && (
-        <div style={{
-          position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: isDark ? 'rgba(0,212,255,0.12)' : 'rgba(0,119,204,0.12)',
-          border: `1px solid ${isDark ? 'rgba(0,212,255,0.4)' : 'rgba(0,119,204,0.4)'}`,
-          borderRadius: '20px', padding: '9px 22px',
-          fontSize: '12px', fontWeight: 600,
-          color: isDark ? 'var(--cyan)' : '#0077cc',
-          pointerEvents: 'none', backdropFilter: 'blur(10px)', whiteSpace: 'nowrap',
-          display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          <span style={{ fontSize: 14 }}>✦</span> Draw buildable area to place a building
-        </div>
-      )}
       {!readOnly && isDrawMode && (
         <div style={{ ...pillBase, background: accentBg, border: `1px solid ${accentBorder}`, color: accent, pointerEvents: 'none' }}>
           Click and drag to draw the buildable area

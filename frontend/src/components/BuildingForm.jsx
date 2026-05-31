@@ -15,7 +15,7 @@ export function BuildingForm({ coord, onSubmit, onReset, loading, onFormChange }
   if (!isOrgUser) {
     return (
       <div style={{
-        position: 'absolute', top: 60, left: 16,
+        position: 'absolute', top: 8, left: 16,
         width: 'var(--form-w)',
         background: 'var(--bg-2)', border: '1px solid var(--border)',
         borderRadius: 'var(--radius)', zIndex: 10, overflow: 'hidden',
@@ -63,10 +63,10 @@ export function BuildingForm({ coord, onSubmit, onReset, loading, onFormChange }
   return (
     <div style={{
       position: 'absolute',
-      top: 60,
+      top: 8,
       left: 16,
       width: 'var(--form-w)',
-      maxHeight: 'calc(100vh - 80px)',
+      maxHeight: 'calc(100vh - 60px)',
       background: 'var(--bg-2)',
       border: '1px solid var(--border)',
       borderRadius: 'var(--radius)',
