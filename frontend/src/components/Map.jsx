@@ -228,7 +228,7 @@ function useBillboardLayer(mapRef, coord, imageSrc, floors) {
 
 // ── GLB building layer ─────────────────────────────────────────────────────────
 
-function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady) {
+function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady, glbUrl) {
   const mercator = mapboxgl.MercatorCoordinate.fromLngLat([coord.lng, coord.lat], 0)
   const mpu = mercator.meterInMercatorCoordinateUnits()
 
@@ -249,7 +249,7 @@ function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady) {
       sun.position.set(0.5, -1, 1).normalize()
       scene.add(sun)
 
-      new GLTFLoader().load('/source/appartamenti.glb', (gltf) => {
+      new GLTFLoader().load(glbUrl, (gltf) => {
         const box = new THREE.Box3().setFromObject(gltf.scene)
         const size = new THREE.Vector3()
         const center = new THREE.Vector3()
@@ -292,13 +292,13 @@ function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady) {
   }
 }
 
-function useGLBLayer(mapRef, coord, rectDims, rotationRef, onDimsReady) {
+function useGLBLayer(mapRef, coord, rectDims, rotationRef, onDimsReady, glbUrl) {
   useEffect(() => {
-    if (!coord || !rectDims) return
+    if (!coord || !rectDims || !glbUrl) return
     const map = mapRef.current?.getMap?.()
     if (!map) return
 
-    const create = () => buildGLBLayer(coord, rectDims.width, rectDims.depth, rotationRef, onDimsReady)
+    const create = () => buildGLBLayer(coord, rectDims.width, rectDims.depth, rotationRef, onDimsReady, glbUrl)
 
     const addLayer = () => {
       if (map.getLayer(GLB_LAYER_ID)) map.removeLayer(GLB_LAYER_ID)
@@ -318,7 +318,7 @@ function useGLBLayer(mapRef, coord, rectDims, rotationRef, onDimsReady) {
       map.off('style.load', onStyleLoad)
       if (map.getLayer(GLB_LAYER_ID)) map.removeLayer(GLB_LAYER_ID)
     }
-  }, [coord, rectDims, mapRef])
+  }, [coord, rectDims, mapRef, glbUrl])
 }
 
 // ── Existing building popups ───────────────────────────────────────────────────
@@ -364,7 +364,7 @@ function ExistingMarkers({ buildings, onSelect, selected }) {
 }
 
 // ── Main Map component ─────────────────────────────────────────────────────────
-export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onSelectExisting, readOnly = false, mode = 'builder', mapPreview = null }) {
+export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onSelectExisting, readOnly = false, mode = 'builder', mapPreview = null, trellisGlbUrl = null }) {
   const mapRef = useRef(null)
   const [selectedExisting, setSelectedExisting] = useState(null)
   const isDark = mode === 'builder'
@@ -383,7 +383,7 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
   useEffect(() => { existingBuildingsRef.current = existingBuildings }, [existingBuildings])
 
   // GLB building at drawn area
-  useGLBLayer(mapRef, rectCoord, rectDims, rotationRef, setBuildingFootprint)
+  useGLBLayer(mapRef, rectCoord, rectDims, rotationRef, setBuildingFootprint, trellisGlbUrl)
 
   // AI image billboard at same coord (driven by parent's coord prop)
   useBillboardLayer(mapRef, coord, mapPreview?.image || null, buildingForm?.floors)
