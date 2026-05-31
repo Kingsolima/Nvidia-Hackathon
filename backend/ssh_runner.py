@@ -5,6 +5,7 @@ then SCP downloads the resulting sample.glb.
 import base64
 import os
 import tempfile
+import threading
 from pathlib import Path
 
 import paramiko
@@ -78,11 +79,33 @@ def run_trellis(image_b64: str, job_id: str) -> str:
             f"conda run -n trellis2 --no-capture-output "
             f"python {REMOTE_EXAMPLE_PY} {remote_img}"
         )
-        _, stdout, stderr = client.exec_command(cmd)
-        # Block until done (TRELLIS can take several minutes)
+        _, stdout, stderr = client.exec_command(cmd, timeout=None)
+
+        # Drain stdout/stderr in threads — TRELLIS produces heavy output and
+        # the SSH pipe buffer (~32 KB) will deadlock if nobody reads it.
+        stderr_buf = []
+        def _drain_out():
+            try:
+                while stdout.read(4096):
+                    pass
+            except Exception:
+                pass
+        def _drain_err():
+            try:
+                while chunk := stderr.read(4096):
+                    stderr_buf.append(chunk)
+            except Exception:
+                pass
+
+        t_out = threading.Thread(target=_drain_out, daemon=True)
+        t_err = threading.Thread(target=_drain_err, daemon=True)
+        t_out.start(); t_err.start()
+
         exit_status = stdout.channel.recv_exit_status()
+        t_out.join(timeout=5); t_err.join(timeout=5)
+
         if exit_status != 0:
-            err = stderr.read().decode("utf-8", errors="replace")
+            err = b"".join(stderr_buf).decode("utf-8", errors="replace")
             raise RuntimeError(f"TRELLIS exited {exit_status}: {err[:600]}")
 
         # Download GLB

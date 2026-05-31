@@ -6,7 +6,7 @@ GET  /trellis/download/{id} — download the finished GLB
 import threading
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -41,14 +41,13 @@ def _trellis_task(job_id: str, image_b64: str) -> None:
 # ── routes ─────────────────────────────────────────────────────────────────────
 
 @router.post("/generate-3d")
-def generate_3d(req: Generate3DRequest, background_tasks: BackgroundTasks):
-    # Strip data-URL prefix if the client sent it with one
+def generate_3d(req: Generate3DRequest):
     b64 = req.image_b64
     if "," in b64:
         b64 = b64.split(",", 1)[1]
 
     job = create_job()
-    background_tasks.add_task(_trellis_task, job.id, b64)
+    threading.Thread(target=_trellis_task, args=(job.id, b64), daemon=True).start()
     return {"job_id": job.id, "status": "pending"}
 
 

@@ -173,7 +173,7 @@ export function BuildingForm({ coord, onSubmit, onReset, loading, onFormChange }
         <button
           className="btn btn-primary"
           onClick={handleSubmit}
-          disabled={!hasCoord || loading}
+          disabled={!hasCoord || !form.description.trim() || loading}
           style={{ width: '100%', padding: '11px' }}
         >
           {loading ? 'Generating…' : 'Generate Image'}
@@ -182,6 +182,11 @@ export function BuildingForm({ coord, onSubmit, onReset, loading, onFormChange }
         {!hasCoord && (
           <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text-3)', margin: 0 }}>
             Draw a buildable area on the map below
+          </p>
+        )}
+        {hasCoord && !form.description.trim() && !loading && (
+          <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text-3)', margin: 0 }}>
+            Describe your building above to generate an image
           </p>
         )}
       </div>

@@ -74,15 +74,6 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    if (!coord) return
-    clearTimeout(previewTimerRef.current)
-    previewTimerRef.current = setTimeout(() => {
-      generateMapPreview(liveForm, coord)
-    }, 900)
-    return () => clearTimeout(previewTimerRef.current)
-  }, [liveForm.description, coord]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleFormChange = useCallback((data) => setLiveForm(data), [])
 
   const handleModeChange = useCallback((newMode) => {
