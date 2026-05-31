@@ -19,11 +19,16 @@ load_dotenv()
 
 router = APIRouter(prefix="/building", tags=["buildings"])
 
-_client = AsyncOpenAI(
-    base_url=os.getenv("MODEL_URL", "http://localhost:11434/v1"),
-    api_key=os.getenv("NGC_API_KEY", "not-needed"),
-)
-MODEL_NAME = os.getenv("MODEL_NAME", "nemotron-3-super:latest")
+# ── NeMoTron client — created lazily so MODEL_URL changes take effect ─────────
+def _get_client() -> AsyncOpenAI:
+    load_dotenv(override=True)
+    return AsyncOpenAI(
+        base_url=os.getenv("MODEL_URL", "http://localhost:11434/v1"),
+        api_key=os.getenv("NGC_API_KEY", "not-needed"),
+    )
+
+def _get_model() -> str:
+    return os.getenv("MODEL_NAME", "nemotron-3-super:latest")
 
 _IMPACT_SYSTEM = """You are an urban planning AI analyst for the city of Toronto.
 Given a proposed building's specifications and nearby geospatial context,
@@ -67,16 +72,22 @@ Parks: {json.dumps(parks[:2])}
 Businesses: {len(bizs)} active ({list(set(b.get('Category','') for b in bizs[:20] if b.get('Category')))})
 Produce the JSON impact assessment."""
 
-    resp = await _client.chat.completions.create(
-        model=MODEL_NAME,
+    resp = await _get_client().chat.completions.create(
+        model=_get_model(),
         messages=[
             {"role": "system", "content": _IMPACT_SYSTEM},
             {"role": "user", "content": prompt},
         ],
         temperature=0.3,
         max_tokens=1024,
+        extra_body={"think": False},
     )
-    content = (resp.choices[0].message.content or "").strip()
+    msg = resp.choices[0].message
+    # Thinking models may return null content with response in reasoning field
+    content = (msg.content or "").strip()
+    if not content:
+        content = (getattr(msg, "reasoning", None) or "").strip()
+    # Strip any remaining <think>...</think> blocks
     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
     raw = None
     if "```" in content:

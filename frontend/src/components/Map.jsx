@@ -7,10 +7,53 @@ import * as turf from '@turf/turf'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
+const TORONTO = { longitude: -79.3832, latitude: 43.6532, zoom: 13.5, pitch: 45, bearing: -10 }
+const BILLBOARD_LAYER_ID = 'ai-image-billboard'
 const GLB_LAYER_ID = 'glb-building-model'
 const EMPTY_GEO = { type: 'FeatureCollection', features: [] }
 
-// --- Geometry helpers ---
+const MAP_STYLES = {
+  builder: 'mapbox://styles/mapbox/dark-v11',
+  citizen: 'mapbox://styles/mapbox/light-v11',
+}
+
+const BUILDINGS_DARK = {
+  id: 'existing-3d-buildings',
+  source: 'composite',
+  'source-layer': 'building',
+  filter: ['==', 'extrude', 'true'],
+  type: 'fill-extrusion',
+  minzoom: 14,
+  paint: {
+    'fill-extrusion-color': [
+      'interpolate', ['linear'], ['get', 'height'],
+      0, '#0f1624', 50, '#131d2e', 100, '#162036', 200, '#1a2540',
+    ],
+    'fill-extrusion-height':  ['get', 'height'],
+    'fill-extrusion-base':    ['get', 'min_height'],
+    'fill-extrusion-opacity': 0.9,
+  },
+}
+
+const BUILDINGS_LIGHT = {
+  id: 'existing-3d-buildings',
+  source: 'composite',
+  'source-layer': 'building',
+  filter: ['==', 'extrude', 'true'],
+  type: 'fill-extrusion',
+  minzoom: 14,
+  paint: {
+    'fill-extrusion-color': [
+      'interpolate', ['linear'], ['get', 'height'],
+      0, '#d8dde8', 50, '#c8cede', 100, '#b8c0d4', 200, '#a8b2c8',
+    ],
+    'fill-extrusion-height':  ['get', 'height'],
+    'fill-extrusion-base':    ['get', 'min_height'],
+    'fill-extrusion-opacity': 0.85,
+  },
+}
+
+// ── Geometry helpers ───────────────────────────────────────────────────────────
 
 function makeRectGeo(start, end) {
   const minLng = Math.min(start.lng, end.lng)
@@ -53,8 +96,8 @@ function compassLabel(deg) {
   return dirs[Math.round(deg / 45) % 8]
 }
 
-// Converts a rotated building footprint (meters) centred on `coord` → GeoJSON polygon.
-// Model X axis = east, model Z axis = north (before rotY in Three.js space).
+// Rotated building footprint (meters) centred on coord → GeoJSON polygon.
+// Negated az matches Three.js rotationY direction.
 function footprintGeo(coord, widthM, depthM, rotDeg) {
   const az = -(rotDeg * Math.PI) / 180
   const cosA = Math.cos(az)
@@ -64,7 +107,6 @@ function footprintGeo(coord, widthM, depthM, rotDeg) {
   const mPerDegLat = 111320
   const mPerDegLng = 111320 * Math.cos(coord.lat * Math.PI / 180)
 
-  // Four corners in model XZ space, then rotate via rotY(az)
   const corners = [[-w, -d], [w, -d], [w, d], [-w, d]].map(([x, z]) => {
     const eastM  =  cosA * x + sinA * z
     const northM = -sinA * x + cosA * z
@@ -78,13 +120,97 @@ function footprintGeo(coord, widthM, depthM, rotDeg) {
   }
 }
 
-// --- GLB layer ---
+// ── Three.js billboard hook (AI image) ────────────────────────────────────────
+function useBillboardLayer(mapRef, coord, imageSrc, floors) {
+  const rendererRef = useRef(null)
+
+  useEffect(() => {
+    const map = mapRef.current?.getMap?.()
+
+    const cleanup = () => {
+      try {
+        const m = mapRef.current?.getMap?.()
+        if (m?.getLayer(BILLBOARD_LAYER_ID)) m.removeLayer(BILLBOARD_LAYER_ID)
+      } catch { /* layer may already be gone */ }
+      if (rendererRef.current) { rendererRef.current.dispose(); rendererRef.current = null }
+    }
+
+    if (!map || !coord || !imageSrc) { cleanup(); return }
+
+    const heightM = (floors || 24) * 3.5
+    const widthM = heightM * 0.8
+
+    const mercator = mapboxgl.MercatorCoordinate.fromLngLat([coord.lng, coord.lat], 0)
+    const mpu = mercator.meterInMercatorCoordinateUnits()
+
+    let scene, camera, threeRenderer
+
+    const layer = {
+      id: BILLBOARD_LAYER_ID,
+      type: 'custom',
+      renderingMode: '3d',
+
+      onAdd(_, gl) {
+        camera = new THREE.Camera()
+        scene = new THREE.Scene()
+
+        const texture = new THREE.TextureLoader().load(imageSrc, () => map.triggerRepaint())
+        texture.colorSpace = THREE.SRGBColorSpace
+
+        const geo = new THREE.PlaneGeometry(widthM, heightM)
+        const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide })
+        const mesh = new THREE.Mesh(geo, mat)
+        mesh.position.set(0, heightM / 2, 0)
+        scene.add(mesh)
+
+        threeRenderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true })
+        threeRenderer.autoClear = false
+        threeRenderer.outputColorSpace = THREE.SRGBColorSpace
+        rendererRef.current = threeRenderer
+      },
+
+      render(_, matrix) {
+        if (!threeRenderer) return
+        const translate = new THREE.Matrix4().makeTranslation(mercator.x, mercator.y, mercator.z)
+        const scale    = new THREE.Matrix4().makeScale(mpu, -mpu, mpu)
+        const rotX     = new THREE.Matrix4().makeRotationX(Math.PI / 2)
+
+        camera.projectionMatrix = new THREE.Matrix4()
+          .fromArray(matrix)
+          .multiply(translate)
+          .multiply(scale)
+          .multiply(rotX)
+
+        threeRenderer.resetState()
+        threeRenderer.render(scene, camera)
+        map.triggerRepaint()
+      },
+    }
+
+    const addLayer = () => {
+      if (map.getLayer(BILLBOARD_LAYER_ID)) map.removeLayer(BILLBOARD_LAYER_ID)
+      map.addLayer(layer)
+    }
+
+    const onStyleLoad = () => addLayer()
+    map.on('style.load', onStyleLoad)
+    if (map.isStyleLoaded()) addLayer()
+    else map.once('load', addLayer)
+
+    return () => {
+      map.off('style.load', onStyleLoad)
+      cleanup()
+    }
+  }, [mapRef, coord, imageSrc, floors])
+}
+
+// ── GLB building layer ─────────────────────────────────────────────────────────
 
 function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady) {
   const mercator = mapboxgl.MercatorCoordinate.fromLngLat([coord.lng, coord.lat], 0)
   const mpu = mercator.meterInMercatorCoordinateUnits()
 
-  let renderer, scene, camera
+  let renderer, scene, camera, _map
   let modelScale = mpu
 
   return {
@@ -93,6 +219,7 @@ function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady) {
     renderingMode: '3d',
 
     onAdd(map, gl) {
+      _map = map
       camera = new THREE.Camera()
       scene = new THREE.Scene()
       scene.add(new THREE.AmbientLight(0xffffff, 1.0))
@@ -107,10 +234,8 @@ function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady) {
         box.getSize(size)
         box.getCenter(center)
 
-        // Center footprint at origin, sit on ground
         gltf.scene.position.set(-center.x, -box.min.y, -center.z)
 
-        // Uniform scale: fill the smaller rectangle dimension, preserve aspect ratio
         const metersPerUnit = Math.min(rectWidth / size.x, rectDepth / size.z)
         modelScale = metersPerUnit * mpu
 
@@ -140,6 +265,7 @@ function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady) {
 
       renderer.resetState()
       renderer.render(scene, camera)
+      _map?.triggerRepaint()
     },
   }
 }
@@ -157,11 +283,8 @@ function useGLBLayer(mapRef, coord, rectDims, rotationRef, onDimsReady) {
       map.addLayer(create())
     }
 
-    if (map.isStyleLoaded()) {
-      addLayer()
-    } else {
-      map.once('load', addLayer)
-    }
+    if (map.isStyleLoaded()) addLayer()
+    else map.once('load', addLayer)
 
     const onStyleLoad = () => {
       if (map.getLayer(GLB_LAYER_ID)) map.removeLayer(GLB_LAYER_ID)
@@ -176,54 +299,8 @@ function useGLBLayer(mapRef, coord, rectDims, rotationRef, onDimsReady) {
   }, [coord, rectDims, mapRef])
 }
 
-// --- Map constants ---
-
-const TORONTO = { longitude: -79.3832, latitude: 43.6532, zoom: 13.5, pitch: 45, bearing: -10 }
-
-const MAP_STYLES = {
-  builder: 'mapbox://styles/mapbox/dark-v11',
-  citizen: 'mapbox://styles/mapbox/light-v11',
-}
-
-const BUILDINGS_DARK = {
-  id: 'existing-3d-buildings',
-  source: 'composite',
-  'source-layer': 'building',
-  filter: ['==', 'extrude', 'true'],
-  type: 'fill-extrusion',
-  minzoom: 14,
-  paint: {
-    'fill-extrusion-color': [
-      'interpolate', ['linear'], ['get', 'height'],
-      0, '#0f1624', 50, '#131d2e', 100, '#162036', 200, '#1a2540',
-    ],
-    'fill-extrusion-height': ['get', 'height'],
-    'fill-extrusion-base': ['get', 'min_height'],
-    'fill-extrusion-opacity': 0.9,
-  },
-}
-
-const BUILDINGS_LIGHT = {
-  id: 'existing-3d-buildings',
-  source: 'composite',
-  'source-layer': 'building',
-  filter: ['==', 'extrude', 'true'],
-  type: 'fill-extrusion',
-  minzoom: 14,
-  paint: {
-    'fill-extrusion-color': [
-      'interpolate', ['linear'], ['get', 'height'],
-      0, '#d8dde8', 50, '#c8cede', 100, '#b8c0d4', 200, '#a8b2c8',
-    ],
-    'fill-extrusion-height': ['get', 'height'],
-    'fill-extrusion-base': ['get', 'min_height'],
-    'fill-extrusion-opacity': 0.85,
-  },
-}
-
-// --- ExistingMarkers ---
-
-function ExistingMarkers({ buildings, onSelect, selected, mode }) {
+// ── Existing building popups ───────────────────────────────────────────────────
+function ExistingMarkers({ buildings, onSelect, selected }) {
   if (!buildings?.length) return null
   return buildings.map(b => (
     <Popup
@@ -238,8 +315,7 @@ function ExistingMarkers({ buildings, onSelect, selected, mode }) {
       <div
         onClick={() => onSelect(b)}
         style={{
-          cursor: 'pointer',
-          padding: '6px 4px 4px',
+          cursor: 'pointer', padding: '6px 4px 4px',
           minWidth: 150,
           borderLeft: `2px solid ${selected?.id === b.id ? 'var(--cyan)' : 'var(--border-2)'}`,
           paddingLeft: 8,
@@ -265,13 +341,13 @@ function ExistingMarkers({ buildings, onSelect, selected, mode }) {
   ))
 }
 
-// --- Map component ---
-
-export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onSelectExisting, readOnly = false, mode = 'builder' }) {
+// ── Main Map component ─────────────────────────────────────────────────────────
+export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onSelectExisting, readOnly = false, mode = 'builder', mapPreview = null }) {
   const mapRef = useRef(null)
   const [selectedExisting, setSelectedExisting] = useState(null)
   const isDark = mode === 'builder'
 
+  // Draw state
   const [isDrawMode, setIsDrawMode] = useState(false)
   const [rectangle, setRectangle] = useState(null)
   const [rectArea, setRectArea] = useState(null)
@@ -279,9 +355,13 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
   const [rectCoord, setRectCoord] = useState(null)
   const [rotation, setRotation] = useState(0)
   const rotationRef = useRef(0)
-  const [buildingFootprint, setBuildingFootprint] = useState(null) // {width, depth} meters, actual scaled GLB
+  const [buildingFootprint, setBuildingFootprint] = useState(null)
 
+  // GLB building at drawn area
   useGLBLayer(mapRef, rectCoord, rectDims, rotationRef, setBuildingFootprint)
+
+  // AI image billboard at same coord (driven by parent's coord prop)
+  useBillboardLayer(mapRef, coord, mapPreview?.image || null, buildingForm?.floors)
 
   // Draw interaction — active only while isDrawMode is true
   useEffect(() => {
@@ -362,7 +442,7 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
     mapRef.current?.flyTo({ center: [b.lng, b.lat], zoom: 15.5, pitch: 50, duration: 700 })
   }
 
-  // While drawing show the raw rectangle; once the GLB loads switch to the actual scaled footprint
+  // While drawing show the raw rectangle; once GLB loads switch to actual scaled footprint
   const displayGeo = (!isDrawMode && rectCoord && buildingFootprint)
     ? footprintGeo(rectCoord, buildingFootprint.width, buildingFootprint.depth, rotation)
     : (rectangle ?? EMPTY_GEO)
@@ -371,11 +451,11 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
     ? buildingFootprint.width * buildingFootprint.depth
     : (rectArea ?? 0)
 
-  const accent = isDark ? '#00d4ff' : '#0077cc'
-  const accentBg = isDark ? 'rgba(0,212,255,0.12)' : 'rgba(0,119,204,0.10)'
+  const accent       = isDark ? '#00d4ff' : '#0077cc'
+  const accentBg     = isDark ? 'rgba(0,212,255,0.12)' : 'rgba(0,119,204,0.10)'
   const accentBorder = isDark ? 'rgba(0,212,255,0.35)' : 'rgba(0,119,204,0.35)'
-  const hintBg = isDark ? 'rgba(10,10,15,0.85)' : 'rgba(245,246,250,0.90)'
-  const hintColor = 'var(--text-2)'
+  const hintBg       = isDark ? 'rgba(10,10,15,0.85)'  : 'rgba(245,246,250,0.90)'
+  const hintColor    = 'var(--text-2)'
 
   const pillBase = {
     borderRadius: 20, padding: '8px 20px', fontSize: 12,
@@ -414,7 +494,6 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
           buildings={existingBuildings}
           onSelect={handleSelectExisting}
           selected={selectedExisting}
-          mode={mode}
         />
       </ReactMapGL>
 
@@ -469,10 +548,41 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
                 const v = Number(e.target.value)
                 setRotation(v)
                 rotationRef.current = v
-                mapRef.current?.getMap?.()?.triggerRepaint()
               }}
             />
           </div>
+
+          {/* Show generate-image hint when building is placed but no image yet */}
+          {!mapPreview?.loading && mapPreview?.image && (
+            <div style={{
+              background: accentBg, border: `1px solid ${accentBorder}`,
+              borderRadius: 20, padding: '5px 16px',
+              fontSize: 11, color: accent,
+              backdropFilter: 'blur(10px)', whiteSpace: 'nowrap',
+            }}>
+              Building rendered — fill the form and click Analyze Impact
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading indicator while image generates */}
+      {!readOnly && rectCoord && mapPreview?.loading && (
+        <div style={{
+          position: 'absolute', bottom: 60, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.7)', borderRadius: 20, padding: '8px 16px',
+          display: 'flex', alignItems: 'center', gap: 8, backdropFilter: 'blur(8px)',
+          border: `1px solid ${isDark ? 'rgba(0,212,255,0.3)' : 'rgba(0,119,204,0.3)'}`,
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            width: 12, height: 12, borderRadius: '50%',
+            border: '2px solid rgba(255,255,255,0.15)',
+            borderTopColor: isDark ? 'var(--cyan)' : '#0077cc',
+            animation: 'billSpin 0.8s linear infinite',
+          }} />
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>Generating render…</span>
+          <style>{`@keyframes billSpin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
 
