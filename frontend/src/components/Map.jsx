@@ -8,7 +8,6 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
 const TORONTO = { longitude: -79.3832, latitude: 43.6532, zoom: 13.5, pitch: 55, bearing: -10 }
-const BILLBOARD_LAYER_ID = 'ai-image-billboard'
 const GLB_LAYER_ID = 'glb-building-model'
 const EMPTY_GEO = { type: 'FeatureCollection', features: [] }
 
@@ -140,90 +139,6 @@ function footprintGeo(coord, widthM, depthM, rotDeg) {
     geometry: { type: 'Polygon', coordinates: [[...corners, corners[0]]] },
     properties: {},
   }
-}
-
-// ── Three.js billboard hook (AI image) ────────────────────────────────────────
-function useBillboardLayer(mapRef, coord, imageSrc, floors) {
-  const rendererRef = useRef(null)
-
-  useEffect(() => {
-    const map = mapRef.current?.getMap?.()
-
-    const cleanup = () => {
-      try {
-        const m = mapRef.current?.getMap?.()
-        if (m?.getLayer(BILLBOARD_LAYER_ID)) m.removeLayer(BILLBOARD_LAYER_ID)
-      } catch { /* layer may already be gone */ }
-      if (rendererRef.current) { rendererRef.current.dispose(); rendererRef.current = null }
-    }
-
-    if (!map || !coord || !imageSrc) { cleanup(); return }
-
-    const heightM = (floors || 24) * 3.5
-    const widthM = heightM * 0.8
-
-    const mercator = mapboxgl.MercatorCoordinate.fromLngLat([coord.lng, coord.lat], 0)
-    const mpu = mercator.meterInMercatorCoordinateUnits()
-
-    let scene, camera, threeRenderer
-
-    const layer = {
-      id: BILLBOARD_LAYER_ID,
-      type: 'custom',
-      renderingMode: '3d',
-
-      onAdd(_, gl) {
-        camera = new THREE.Camera()
-        scene = new THREE.Scene()
-
-        const texture = new THREE.TextureLoader().load(imageSrc, () => map.triggerRepaint())
-        texture.colorSpace = THREE.SRGBColorSpace
-
-        const geo = new THREE.PlaneGeometry(widthM, heightM)
-        const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide })
-        const mesh = new THREE.Mesh(geo, mat)
-        mesh.position.set(0, heightM / 2, 0)
-        scene.add(mesh)
-
-        threeRenderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true })
-        threeRenderer.autoClear = false
-        threeRenderer.outputColorSpace = THREE.SRGBColorSpace
-        rendererRef.current = threeRenderer
-      },
-
-      render(_, matrix) {
-        if (!threeRenderer) return
-        const translate = new THREE.Matrix4().makeTranslation(mercator.x, mercator.y, mercator.z)
-        const scale    = new THREE.Matrix4().makeScale(mpu, -mpu, mpu)
-        const rotX     = new THREE.Matrix4().makeRotationX(Math.PI / 2)
-
-        camera.projectionMatrix = new THREE.Matrix4()
-          .fromArray(matrix)
-          .multiply(translate)
-          .multiply(scale)
-          .multiply(rotX)
-
-        threeRenderer.resetState()
-        threeRenderer.render(scene, camera)
-        map.triggerRepaint()
-      },
-    }
-
-    const addLayer = () => {
-      if (map.getLayer(BILLBOARD_LAYER_ID)) map.removeLayer(BILLBOARD_LAYER_ID)
-      map.addLayer(layer)
-    }
-
-    const onStyleLoad = () => addLayer()
-    map.on('style.load', onStyleLoad)
-    if (map.isStyleLoaded()) addLayer()
-    else map.once('load', addLayer)
-
-    return () => {
-      map.off('style.load', onStyleLoad)
-      cleanup()
-    }
-  }, [mapRef, coord, imageSrc, floors])
 }
 
 // ── GLB building layer ─────────────────────────────────────────────────────────
@@ -395,9 +310,6 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
 
   // GLB building at drawn area
   useGLBLayer(mapRef, rectCoord, rectDims, rotationRef, setBuildingFootprint, trellisGlbUrl)
-
-  // AI image billboard at same coord (driven by parent's coord prop)
-  useBillboardLayer(mapRef, coord, mapPreview?.image || null, buildingForm?.floors)
 
   // Draw interaction — active only while isDrawMode is true
   useEffect(() => {

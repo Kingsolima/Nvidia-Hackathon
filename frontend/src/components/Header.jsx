@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { getHealth } from '../api'
 import { ModeSwitcher } from './ModeSwitcher'
 
-export function Header({ buildingCount = 0, mode, onModeChange, onLoginClick }) {
+export function Header({ buildingCount = 0, mode, onModeChange }) {
   const [online, setOnline] = useState(null)
 
   useEffect(() => {
@@ -72,32 +72,8 @@ export function Header({ buildingCount = 0, mode, onModeChange, onLoginClick }) 
           </span>
         )}
         <ModeSwitcher mode={mode} onChange={onModeChange} />
-        <LoginButton onClick={onLoginClick} />
       </div>
     </header>
   )
 }
 
-function LoginButton({ onClick }) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        padding: '5px 14px',
-        fontSize: '11px',
-        fontWeight: 600,
-        border: `1px solid ${hovered ? 'var(--cyan)' : 'var(--border-2)'}`,
-        borderRadius: 'var(--radius)',
-        background: 'transparent',
-        color: hovered ? 'var(--cyan)' : 'var(--text-2)',
-        cursor: 'pointer',
-        transition: 'border-color 0.15s, color 0.15s',
-      }}
-    >
-      Login
-    </button>
-  )
-}

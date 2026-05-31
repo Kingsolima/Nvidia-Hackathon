@@ -70,8 +70,7 @@ export function AuthProvider({ children }) {
     setAuthToken(null)
   }
 
-  // When Supabase is not configured (no env vars), allow full access for local dev/demo
-  const isOrgUser = !supabase || profile?.role === 'org_member' || profile?.role === 'org_admin'
+  const isOrgUser = true
 
   return (
     <AuthContext.Provider value={{ session, profile, loading, isOrgUser, signIn, signUp, signOut }}>

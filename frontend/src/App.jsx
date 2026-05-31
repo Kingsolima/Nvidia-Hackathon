@@ -5,12 +5,10 @@ import { BuildingForm } from './components/BuildingForm'
 import { ImpactPanel } from './components/ImpactPanel'
 import { CitizenPanel } from './components/CitizenPanel'
 import { ImageConfirmModal } from './components/ImageConfirmModal'
-import AuthModal from './components/AuthModal'
 import { ChatBox } from './components/ChatBox'
 import { useBuilding } from './hooks/useBuilding'
 import { useImpact } from './hooks/useImpact'
 import { useBuilding3D } from './hooks/useBuilding3D'
-import { useAuth } from './context/AuthContext'
 import { getBuildings } from './api'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -27,13 +25,10 @@ export default function App() {
   const [panelOpen,        setPanelOpen]        = useState(false)
   const [renderPayload,    setRenderPayload]    = useState(null)
   const [mapPreview,       setMapPreview]       = useState({ image: null, loading: false })
-  const [showAuthModal,    setShowAuthModal]    = useState(false)
   const [imageModal,       setImageModal]       = useState({ open: false, imageSrc: null, imageB64: null })
   const [confirmedImageSrc, setConfirmedImageSrc] = useState(null)
   const [trellisGlbUrl,    setTrellisGlbUrl]   = useState(null)
   const [pendingFormData,  setPendingFormData]  = useState(null)
-
-  const { isOrgUser } = useAuth()
 
   const previewTimerRef = useRef(null)
   const previewAbortRef = useRef(null)
@@ -91,10 +86,6 @@ export default function App() {
   const handleFormChange = useCallback((data) => setLiveForm(data), [])
 
   const handleModeChange = useCallback((newMode) => {
-    if (newMode === 'builder' && !isOrgUser) {
-      setShowAuthModal(true)
-      return
-    }
     setMode(newMode)
     if (newMode === 'citizen') {
       reset(); reset3D()
@@ -104,14 +95,7 @@ export default function App() {
       clearTimeout(previewTimerRef.current)
       if (previewAbortRef.current) previewAbortRef.current.abort()
     }
-  }, [isOrgUser, reset, reset3D])
-
-  useEffect(() => {
-    if (isOrgUser && showAuthModal) {
-      setShowAuthModal(false)
-      setMode('builder')
-    }
-  }, [isOrgUser, showAuthModal])
+  }, [reset, reset3D])
 
   // Step 1: "Generate Image" — open confirm modal (reuse auto-preview or generate fresh)
   const handleSubmit = async (data) => {
@@ -194,7 +178,6 @@ export default function App() {
         buildingCount={existing.length}
         mode={mode}
         onModeChange={handleModeChange}
-        onLoginClick={() => setShowAuthModal(true)}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
@@ -312,8 +295,6 @@ export default function App() {
         />
       )}
 
-      {/* Auth modal */}
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
     </div>
   )
 }
