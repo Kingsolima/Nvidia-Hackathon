@@ -143,7 +143,7 @@ function footprintGeo(coord, widthM, depthM, rotDeg) {
 
 // ── GLB building layer ─────────────────────────────────────────────────────────
 
-function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady, glbUrl) {
+function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, scaleRef, onDimsReady, glbUrl) {
   const mercator = mapboxgl.MercatorCoordinate.fromLngLat([coord.lng, coord.lat], 0)
   const mpu = mercator.meterInMercatorCoordinateUnits()
 
@@ -188,8 +188,9 @@ function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady, gl
 
     render(gl, matrix) {
       const azimuth = ((rotationRef?.current ?? 0) * Math.PI) / 180
+      const s = modelScale * (scaleRef?.current ?? 1)
       const translate = new THREE.Matrix4().makeTranslation(mercator.x, mercator.y, mercator.z)
-      const scale = new THREE.Matrix4().makeScale(modelScale, -modelScale, modelScale)
+      const scale = new THREE.Matrix4().makeScale(s, -s, s)
       const rotX = new THREE.Matrix4().makeRotationX(Math.PI / 2)
       const rotY = new THREE.Matrix4().makeRotationY(azimuth)
 
@@ -207,13 +208,13 @@ function buildGLBLayer(coord, rectWidth, rectDepth, rotationRef, onDimsReady, gl
   }
 }
 
-function useGLBLayer(mapRef, coord, rectDims, rotationRef, onDimsReady, glbUrl) {
+function useGLBLayer(mapRef, coord, rectDims, rotationRef, scaleRef, onDimsReady, glbUrl) {
   useEffect(() => {
     if (!coord || !rectDims || !glbUrl) return
     const map = mapRef.current?.getMap?.()
     if (!map) return
 
-    const create = () => buildGLBLayer(coord, rectDims.width, rectDims.depth, rotationRef, onDimsReady, glbUrl)
+    const create = () => buildGLBLayer(coord, rectDims.width, rectDims.depth, rotationRef, scaleRef, onDimsReady, glbUrl)
 
     const addLayer = () => {
       if (map.getLayer(GLB_LAYER_ID)) map.removeLayer(GLB_LAYER_ID)
@@ -296,6 +297,8 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
   const [rotation, setRotation] = useState(0)
   const rotationRef = useRef(0)
   const [buildingFootprint, setBuildingFootprint] = useState(null)
+  const [glbScale, setGlbScale] = useState(1)
+  const glbScaleRef = useRef(1)
   const [isBlocked, setIsBlocked] = useState(false)
   const existingBuildingsRef = useRef(existingBuildings)
   useEffect(() => { existingBuildingsRef.current = existingBuildings }, [existingBuildings])
@@ -309,7 +312,7 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
   }, [])
 
   // GLB building at drawn area
-  useGLBLayer(mapRef, rectCoord, rectDims, rotationRef, setBuildingFootprint, trellisGlbUrl)
+  useGLBLayer(mapRef, rectCoord, rectDims, rotationRef, glbScaleRef, setBuildingFootprint, trellisGlbUrl)
 
   // Draw interaction — active only while isDrawMode is true
   useEffect(() => {
@@ -361,6 +364,8 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
       setRotation(0)
       rotationRef.current = 0
       setBuildingFootprint(null)
+      setGlbScale(1)
+      glbScaleRef.current = 1
       onCoordSelect?.(center)
 
       mapRef.current?.flyTo({
@@ -399,17 +404,15 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
 
   // While drawing show the raw rectangle. Once placed, apply rotation —
   // use GLB-scaled footprint if loaded, else the drawn rect dimensions.
+  const fpWidth = (buildingFootprint?.width ?? rectDims?.width ?? 0) * (buildingFootprint ? glbScale : 1)
+  const fpDepth = (buildingFootprint?.depth ?? rectDims?.depth ?? 0) * (buildingFootprint ? glbScale : 1)
+
   const displayGeo = (!isDrawMode && rectCoord && (buildingFootprint || rectDims))
-    ? footprintGeo(
-        rectCoord,
-        buildingFootprint?.width ?? rectDims.width,
-        buildingFootprint?.depth ?? rectDims.depth,
-        rotation,
-      )
+    ? footprintGeo(rectCoord, fpWidth, fpDepth, rotation)
     : (rectangle ?? EMPTY_GEO)
 
   const displayArea = buildingFootprint
-    ? buildingFootprint.width * buildingFootprint.depth
+    ? fpWidth * fpDepth
     : (rectArea ?? 0)
 
   const accent       = isDark ? '#00d4ff' : '#0077cc'
@@ -591,27 +594,46 @@ export function Map({ onCoordSelect, coord, buildingForm, existingBuildings, onS
             backdropFilter: 'blur(10px)', whiteSpace: 'nowrap',
           }}>
             {Math.round(displayArea).toLocaleString()} m²&nbsp;&nbsp;·&nbsp;&nbsp;
-            {(buildingFootprint?.width ?? rectDims?.width ?? 0).toFixed(0)} m × {(buildingFootprint?.depth ?? rectDims?.depth ?? 0).toFixed(0)} m
+            {fpWidth.toFixed(0)} m × {fpDepth.toFixed(0)} m
           </div>
 
           <div style={{
             background: hintBg, border: '1px solid var(--border)',
             borderRadius: 12, padding: '10px 20px',
             backdropFilter: 'blur(10px)',
-            display: 'flex', alignItems: 'center', gap: 12,
+            display: 'flex', flexDirection: 'column', gap: 10,
           }}>
-            <span style={{ fontSize: 11, color: hintColor, minWidth: 80 }}>
-              {rotation}°&nbsp;&nbsp;{compassLabel(rotation)}
-            </span>
-            <input
-              type="range" min={0} max={359} value={rotation}
-              style={{ width: 160, accentColor: accent, cursor: 'pointer' }}
-              onChange={e => {
-                const v = Number(e.target.value)
-                setRotation(v)
-                rotationRef.current = v
-              }}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 11, color: hintColor, minWidth: 80 }}>
+                {rotation}°&nbsp;&nbsp;{compassLabel(rotation)}
+              </span>
+              <input
+                type="range" min={0} max={359} value={rotation}
+                style={{ width: 160, accentColor: accent, cursor: 'pointer' }}
+                onChange={e => {
+                  const v = Number(e.target.value)
+                  setRotation(v)
+                  rotationRef.current = v
+                }}
+              />
+            </div>
+            {buildingFootprint && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 11, color: hintColor, minWidth: 80 }}>
+                  {Math.round(glbScale * 100)}%&nbsp;&nbsp;size
+                </span>
+                <input
+                  type="range" min={25} max={300} step={1} value={Math.round(glbScale * 100)}
+                  style={{ width: 160, accentColor: accent, cursor: 'pointer' }}
+                  onChange={e => {
+                    const v = Number(e.target.value) / 100
+                    setGlbScale(v)
+                    glbScaleRef.current = v
+                    mapRef.current?.getMap?.()?.triggerRepaint()
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Show generate-image hint when building is placed but no image yet */}

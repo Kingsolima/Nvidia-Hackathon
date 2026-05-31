@@ -56,6 +56,52 @@ def _normalise(raw: bytes) -> bytes:
     return buf.getvalue()
 
 
+def edit_dalle_image(image_b64: str, edit_prompt: str) -> Optional[bytes]:
+    """Edit an existing building image via gpt-image-1. Returns PNG bytes or None."""
+    load_dotenv(override=True)
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key or api_key.startswith("your_") or api_key.startswith("sk-your"):
+        return None
+
+    try:
+        import io
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+
+        raw_b64 = image_b64.split(",")[1] if "," in image_b64 else image_b64
+        raw = base64.b64decode(raw_b64)
+
+        image_file = io.BytesIO(raw)
+        image_file.name = "building.png"
+
+        prompt = (
+            f"{edit_prompt.strip()}. "
+            "Maintain the photorealistic architectural render style. "
+            "Solid light grey #D3D3D3 background — no sky, no ground, no people, no trees. "
+            "Full building structure visible from base to roofline. "
+            "Studio lighting, no text, no watermarks."
+        )
+
+        result = client.images.edit(
+            model="gpt-image-1",
+            image=image_file,
+            prompt=prompt,
+            size="1024x1536",
+            n=1,
+        )
+
+        b64 = result.data[0].b64_json
+        if b64:
+            return _normalise(base64.b64decode(b64))
+
+    except Exception as e:
+        import sys
+        print(f"[dalle_renderer] Image edit failed: {e}", file=sys.stderr)
+
+    return None
+
+
 def generate_dalle_image(user_description: str) -> Optional[bytes]:
     """Generate a building image via gpt-image-1. Returns PNG bytes or None."""
     load_dotenv(override=True)  # re-read on every call so key rotations take effect

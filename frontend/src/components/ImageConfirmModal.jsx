@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { Loader, X, RefreshCw, Cuboid } from 'lucide-react'
+import { Loader, X, RefreshCw, Cuboid, Pencil, Check, ArrowLeft } from 'lucide-react'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -27,11 +27,22 @@ const STEPS = [
 ]
 
 export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
+  // Trellis state
   const [state, setState] = useState('idle')   // idle | starting | pending | running | done | error
   const [errMsg, setErrMsg] = useState(null)
   const [stepIdx, setStepIdx] = useState(0)
   const pollRef = useRef(null)
   const stepRef = useRef(null)
+
+  // Track the current image — updated after each successful edit
+  const [currentSrc, setCurrentSrc] = useState(imageSrc)
+  const [currentB64, setCurrentB64] = useState(imageB64)
+
+  // Edit state
+  const [editMode, setEditMode] = useState(false)
+  const [editPrompt, setEditPrompt] = useState('')
+  const [editLoading, setEditLoading] = useState(false)
+  const [editErr, setEditErr] = useState(null)
 
   const clearTimers = () => {
     clearTimeout(pollRef.current)
@@ -45,7 +56,7 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
         if (data.status === 'done') {
           setState('done')
           clearTimeout(stepRef.current)
-          setTimeout(() => onConfirm(`${API_BASE}${data.glb_url}`), 400)
+          setTimeout(() => onConfirm(`${API_BASE}${data.glb_url}`, currentSrc), 400)
         } else if (data.status === 'error') {
           setErrMsg(data.error || 'Unknown error')
           setState('error')
@@ -60,14 +71,13 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
         clearTimeout(stepRef.current)
       }
     }, 5000)
-  }, [onConfirm])
+  }, [onConfirm, currentSrc])
 
   const handleCreate3D = async () => {
     setState('starting')
     setErrMsg(null)
     setStepIdx(0)
 
-    // Cycle through step labels for visual feedback during the long wait
     let i = 0
     const cycleStep = () => {
       i = Math.min(i + 1, STEPS.length - 1)
@@ -77,7 +87,7 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
     stepRef.current = setTimeout(cycleStep, 10000)
 
     try {
-      const b64 = imageB64.includes(',') ? imageB64.split(',')[1] : imageB64
+      const b64 = currentB64.includes(',') ? currentB64.split(',')[1] : currentB64
       const { job_id } = await startTrellisJob(b64)
       setState('pending')
       schedulePoll(job_id)
@@ -88,9 +98,38 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
     }
   }
 
+  const handleApplyEdit = async () => {
+    if (!editPrompt.trim()) return
+    setEditLoading(true)
+    setEditErr(null)
+    try {
+      const raw = currentB64.includes(',') ? currentB64.split(',')[1] : currentB64
+      const res = await fetch(`${API_BASE}/generate/edit-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_b64: raw, edit_prompt: editPrompt }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || `${res.status}`)
+      }
+      const data = await res.json()
+      const newSrc = `data:image/png;base64,${data.image_b64}`
+      setCurrentSrc(newSrc)
+      setCurrentB64(newSrc)
+      setEditMode(false)
+      setEditPrompt('')
+    } catch (e) {
+      setEditErr(e.message)
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
   const handleDeny = () => { clearTimers(); onDeny() }
 
   const isRunning = ['starting', 'pending', 'running'].includes(state)
+  const busy = isRunning || editLoading
 
   return (
     <div style={{
@@ -115,12 +154,22 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           background: 'var(--bg-3)',
         }}>
-          <span style={{ fontWeight: 600, fontSize: 13 }}>
-            {state === 'done' ? 'Model ready!' : isRunning ? 'Generating 3D Model…' : 'Confirm Image'}
-          </span>
-          {!isRunning && state !== 'done' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {editMode && !busy && (
+              <button
+                onClick={() => { setEditMode(false); setEditErr(null) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-2)', padding: 2, display: 'flex' }}
+              >
+                <ArrowLeft size={15} />
+              </button>
+            )}
+            <span style={{ fontWeight: 600, fontSize: 13 }}>
+              {state === 'done' ? 'Model ready!' : isRunning ? 'Generating 3D Model…' : editMode ? 'Edit Image' : 'Building Image'}
+            </span>
+          </div>
+          {!busy && state !== 'done' && (
             <button
-              onClick={handleDeny}
+              onClick={editMode ? () => { setEditMode(false); setEditErr(null) } : handleDeny}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-2)', padding: 4, display: 'flex' }}
             >
               <X size={16} />
@@ -131,11 +180,11 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
         {/* Image */}
         <div style={{ position: 'relative', background: '#0a0a0f', aspectRatio: '4/3' }}>
           <img
-            src={imageSrc}
+            src={currentSrc}
             alt="Generated building"
             style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
           />
-          {isRunning && (
+          {busy && (
             <div style={{
               position: 'absolute', inset: 0,
               background: 'rgba(0,0,0,0.65)',
@@ -144,11 +193,13 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
               <Loader size={40} color="var(--cyan)" style={{ animation: 'spin 1s linear infinite' }} />
               <div style={{ textAlign: 'center', padding: '0 24px' }}>
                 <div style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
-                  {STEPS[stepIdx]}
+                  {editLoading ? 'Applying edits…' : STEPS[stepIdx]}
                 </div>
-                <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
-                  TRELLIS.2 on the GX10 — this takes 2–10 min
-                </div>
+                {isRunning && (
+                  <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
+                    TRELLIS.2 on the GX10 — this takes 2–10 min
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -156,7 +207,9 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
 
         {/* Actions */}
         <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {state === 'idle' && (
+
+          {/* Default idle — pick action */}
+          {state === 'idle' && !editMode && (
             <>
               <button
                 className="btn btn-primary"
@@ -166,14 +219,81 @@ export function ImageConfirmModal({ imageSrc, imageB64, onConfirm, onDeny }) {
                 <Cuboid size={15} />
                 Create 3D Model
               </button>
-              <button
-                className="btn btn-ghost"
-                onClick={handleDeny}
-                style={{ width: '100%', padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-              >
-                <RefreshCw size={13} />
-                Regenerate Image
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => { setEditMode(true); setEditErr(null) }}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                >
+                  <Pencil size={13} />
+                  Edit Image
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={handleDeny}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                >
+                  <RefreshCw size={13} />
+                  Regenerate
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Edit mode — NLP prompt */}
+          {state === 'idle' && editMode && (
+            <>
+              <textarea
+                autoFocus
+                placeholder={'Describe your changes… e.g. "add a green roof and solar panels" or "make the facade red brick"'}
+                value={editPrompt}
+                onChange={e => setEditPrompt(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleApplyEdit() }
+                }}
+                rows={3}
+                disabled={editLoading}
+                style={{
+                  resize: 'vertical', fontSize: 12,
+                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)', color: 'var(--text)',
+                  padding: '8px 10px', fontFamily: 'var(--font)', outline: 'none',
+                  lineHeight: 1.5,
+                }}
+              />
+              {editErr && (
+                <div style={{
+                  fontSize: 11, color: '#f87171', padding: '6px 10px',
+                  background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)',
+                  borderRadius: 6,
+                }}>
+                  {editErr}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleApplyEdit}
+                  disabled={!editPrompt.trim() || editLoading}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                >
+                  {editLoading
+                    ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                    : <Check size={13} />}
+                  {editLoading ? 'Applying…' : 'Apply Edit'}
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => { setEditMode(false); setEditErr(null); setEditPrompt('') }}
+                  disabled={editLoading}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
+                Shift+Enter for new line · Enter to apply
+              </div>
             </>
           )}
 

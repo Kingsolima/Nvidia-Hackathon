@@ -18,10 +18,16 @@ from dotenv import load_dotenv
 
 from rendering.ai_renderer import generate_ai_image
 from rendering.building_renderer import render_building
+from rendering.dalle_renderer import edit_dalle_image
 
 load_dotenv()
 
 router = APIRouter(prefix="/generate", tags=["generate"])
+
+
+class EditImageRequest(BaseModel):
+    image_b64: str
+    edit_prompt: str
 
 
 class GenerateRequest(BaseModel):
@@ -71,6 +77,27 @@ def _infer_params(prompt: str) -> tuple[str, str, int, str]:
     size = "large" if floors > 40 else "medium" if floors > 10 else "small"
 
     return building_type, style, floors, size
+
+
+@router.post("/edit-image", response_model=GenerateResponse)
+def edit_image(req: EditImageRequest):
+    try:
+        png = edit_dalle_image(req.image_b64, req.edit_prompt)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail=f"Image edit error: {e}")
+
+    if png is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Image edit failed — check OPENAI_API_KEY and quota",
+        )
+
+    return GenerateResponse(
+        image_b64=base64.b64encode(png).decode(),
+        image_path="(in-memory)",
+        metadata={"renderer": "gpt-image-1 edit", "edit_prompt": req.edit_prompt},
+    )
 
 
 @router.post("/building-image", response_model=GenerateResponse)

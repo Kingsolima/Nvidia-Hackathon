@@ -126,9 +126,10 @@ export default function App() {
   }
 
   // Step 2b: TRELLIS done — GLB URL arrives, panel opens
-  const handleTrellisComplete = (glbUrl) => {
+  // finalImageSrc is the image as it was when the user clicked Create 3D (may be edited)
+  const handleTrellisComplete = (glbUrl, finalImageSrc) => {
     setTrellisGlbUrl(glbUrl)
-    setConfirmedImageSrc(imageModal.imageSrc)
+    setConfirmedImageSrc(finalImageSrc || imageModal.imageSrc)
     setImageModal({ open: false, imageSrc: null, imageB64: null })
     setMapPreview({ image: null, loading: false }) // clear billboard so 3D takes over
   }
