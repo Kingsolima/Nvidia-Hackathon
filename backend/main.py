@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine, Base
-from routers import buildings, chat, generate
+from routers import buildings, chat, generate, accounts
 from spatial import layers_status
 
 # Create all tables on startup
@@ -20,6 +20,7 @@ app.add_middleware(
 app.include_router(buildings.router)
 app.include_router(chat.router)
 app.include_router(generate.router)
+app.include_router(accounts.router)
 
 
 @app.get("/health")

@@ -4,19 +4,24 @@ import { Map } from './components/Map'
 import { BuildingForm } from './components/BuildingForm'
 import { ImpactPanel } from './components/ImpactPanel'
 import { CitizenPanel } from './components/CitizenPanel'
+import AuthModal from './components/AuthModal'
 import { useBuilding } from './hooks/useBuilding'
 import { useImpact } from './hooks/useImpact'
 import { useBuilding3D } from './hooks/useBuilding3D'
+import { useAuth } from './context/AuthContext'
 import { getBuildings } from './api'
 
 export default function App() {
-  const [mode,         setMode]         = useState('builder')   // 'builder' | 'citizen'
-  const [coord,        setCoord]        = useState(null)
-  const [formData,     setFormData]     = useState({ floors: 24, footprint_m2: 2000, type: 'residential (high-rise)' })
-  const [existing,     setExisting]     = useState([])
-  const [selected,     setSelected]     = useState(null)
-  const [panelOpen,    setPanelOpen]    = useState(false)
+  const [mode,          setMode]          = useState('citizen')    // default citizen; builder unlocks on auth
+  const [coord,         setCoord]         = useState(null)
+  const [formData,      setFormData]      = useState({ floors: 24, footprint_m2: 2000, type: 'residential (high-rise)' })
+  const [existing,      setExisting]      = useState([])
+  const [selected,      setSelected]      = useState(null)
+  const [panelOpen,     setPanelOpen]     = useState(false)
   const [renderPayload, setRenderPayload] = useState(null)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+
+  const { isOrgUser, loading: authLoading } = useAuth()
 
   const { building, loading: buildingLoading, submit, reset } = useBuilding()
   const buildingId = building?.id || selected?.id
@@ -36,14 +41,26 @@ export default function App() {
     if (building || selected) setPanelOpen(true)
   }, [building, selected])
 
+  // If user switches to builder mode without org auth, show login modal instead
   const handleModeChange = useCallback((newMode) => {
+    if (newMode === 'builder' && !isOrgUser) {
+      setShowAuthModal(true)
+      return
+    }
     setMode(newMode)
-    // In citizen mode, clear any builder state
     if (newMode === 'citizen') {
       reset(); reset3D()
       setCoord(null); setPanelOpen(false); setRenderPayload(null)
     }
-  }, [reset, reset3D])
+  }, [isOrgUser, reset, reset3D])
+
+  // When org auth is acquired while modal was open, switch to builder
+  useEffect(() => {
+    if (isOrgUser && showAuthModal) {
+      setShowAuthModal(false)
+      setMode('builder')
+    }
+  }, [isOrgUser, showAuthModal])
 
   const handleSubmit = async (data) => {
     setFormData({ floors: data.floors, footprint_m2: data.footprint_m2, type: data.type })
@@ -74,6 +91,7 @@ export default function App() {
         buildingCount={existing.length}
         mode={mode}
         onModeChange={handleModeChange}
+        onLoginClick={() => setShowAuthModal(true)}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
@@ -142,6 +160,9 @@ export default function App() {
           />
         )}
       </div>
+
+      {/* Auth modal */}
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
     </div>
   )
 }

@@ -21,3 +21,4 @@ openai
 pillow
 scikit-learn
 xgboost
+python-jose[cryptography]
