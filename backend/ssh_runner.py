@@ -13,12 +13,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GX10_HOST = os.getenv("GX10_HOST", "100.93.45.108")
-GX10_USER = os.getenv("GX10_USER", "benjamin")
+GX10_USER = os.getenv("GX10_USER", "asus")
 GX10_PORT = int(os.getenv("GX10_PORT", "22"))
-REMOTE_ASSETS_DIR = "/home/benjamin/TRELLIS.2/assets/example_image"
-REMOTE_TRELLIS_DIR = "/home/benjamin/TRELLIS.2"
-REMOTE_OUTPUT_GLB  = "/home/benjamin/TRELLIS.2/sample.glb"
-REMOTE_EXAMPLE_PY  = "/home/benjamin/TRELLIS.2/example.py"
+REMOTE_ASSETS_DIR = "/home/asus/TRELLIS.2/assets/example_image"
+REMOTE_TRELLIS_DIR = "/home/asus/TRELLIS.2"
+REMOTE_OUTPUT_GLB  = "/home/asus/TRELLIS.2/sample.glb"
+REMOTE_EXAMPLE_PY  = "/home/asus/TRELLIS.2/example.py"
 
 GLB_STORE = Path(__file__).parent / "glb_store"
 GLB_STORE.mkdir(exist_ok=True)
