@@ -100,7 +100,7 @@ export function BuildingForm({ coord, onSubmit, onReset, loading, onFormChange }
             {coord.lat.toFixed(5)}, {coord.lng.toFixed(5)}
           </span>
         ) : (
-          <span style={{ fontSize: '11px', color: 'var(--text-3)' }}>Click the map to place a building</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-3)' }}>Draw your buildable area on the map to get started</span>
         )}
       </div>
 
@@ -181,7 +181,7 @@ export function BuildingForm({ coord, onSubmit, onReset, loading, onFormChange }
 
         {!hasCoord && (
           <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text-3)', margin: 0 }}>
-            Click anywhere on the map first
+            Draw a buildable area on the map below
           </p>
         )}
       </div>
