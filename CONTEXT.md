@@ -20,10 +20,10 @@ Full spec: open `project-blueprint.html` in a browser.
 |--------|------|
 | Omar | Data Engineer — `omar/data` branch |
 | Ben + Rehan | 3D Rendering / Maps — `rehan-rendering` branch |
-| Rehan | Frontend / UX |
+| Rehan | 2D Image Rendering  |
 | Ahmed | AI / ML Engineer |
 | Yusuf | Integration Lead + AI / ML |
-| Wali | Backend Engineer |
+| Wali | FrontEnd and Backend Engineer |
 
 ---
 
