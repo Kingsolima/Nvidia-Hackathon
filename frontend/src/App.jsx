@@ -4,9 +4,11 @@ import { Map } from './components/Map'
 import { BuildingForm } from './components/BuildingForm'
 import { ImpactPanel } from './components/ImpactPanel'
 import { CitizenPanel } from './components/CitizenPanel'
+import AuthModal from './components/AuthModal'
 import { useBuilding } from './hooks/useBuilding'
 import { useImpact } from './hooks/useImpact'
 import { useBuilding3D } from './hooks/useBuilding3D'
+import { useAuth } from './context/AuthContext'
 import { getBuildings } from './api'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -14,15 +16,18 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const DEFAULT_FORM = { name: '', description: '', floors: 24 }
 
 export default function App() {
-  const [mode,         setMode]         = useState('builder')   // 'builder' | 'citizen'
-  const [coord,        setCoord]        = useState(null)
-  const [formData,     setFormData]     = useState({ floors: 24, footprint_m2: 2000, type: 'residential (high-rise)' })
-  const [liveForm,     setLiveForm]     = useState(DEFAULT_FORM)
-  const [existing,     setExisting]     = useState([])
-  const [selected,     setSelected]     = useState(null)
-  const [panelOpen,    setPanelOpen]    = useState(false)
+  const [mode,          setMode]          = useState('citizen')    // default citizen; builder unlocks on auth
+  const [coord,         setCoord]         = useState(null)
+  const [formData,      setFormData]      = useState({ floors: 24, footprint_m2: 2000, type: 'residential (high-rise)' })
+  const [liveForm,      setLiveForm]      = useState(DEFAULT_FORM)
+  const [existing,      setExisting]      = useState([])
+  const [selected,      setSelected]      = useState(null)
+  const [panelOpen,     setPanelOpen]     = useState(false)
   const [renderPayload, setRenderPayload] = useState(null)
-  const [mapPreview,   setMapPreview]   = useState({ image: null, loading: false })
+  const [mapPreview,    setMapPreview]    = useState({ image: null, loading: false })
+  const [showAuthModal, setShowAuthModal] = useState(false)
+
+  const { isOrgUser } = useAuth()
 
   const previewTimerRef = useRef(null)
   const previewAbortRef = useRef(null)
@@ -46,6 +51,7 @@ export default function App() {
     if (building || selected) setPanelOpen(true)
   }, [building, selected])
 
+  // If user switches to builder mode without org auth, show login modal instead
   const generateMapPreview = async (formData, coordVal) => {
     if (!coordVal) return
     if (previewAbortRef.current) previewAbortRef.current.abort()
@@ -84,6 +90,10 @@ export default function App() {
   const handleFormChange = useCallback((data) => setLiveForm(data), [])
 
   const handleModeChange = useCallback((newMode) => {
+    if (newMode === 'builder' && !isOrgUser) {
+      setShowAuthModal(true)
+      return
+    }
     setMode(newMode)
     if (newMode === 'citizen') {
       reset(); reset3D()
@@ -92,7 +102,15 @@ export default function App() {
       clearTimeout(previewTimerRef.current)
       if (previewAbortRef.current) previewAbortRef.current.abort()
     }
-  }, [reset, reset3D])
+  }, [isOrgUser, reset, reset3D])
+
+  // When org auth is acquired while modal was open, switch to builder
+  useEffect(() => {
+    if (isOrgUser && showAuthModal) {
+      setShowAuthModal(false)
+      setMode('builder')
+    }
+  }, [isOrgUser, showAuthModal])
 
   const handleSubmit = async (data) => {
     setFormData({ floors: data.floors, footprint_m2: 2000, type: 'mixed-use' })
@@ -128,6 +146,7 @@ export default function App() {
         buildingCount={existing.length}
         mode={mode}
         onModeChange={handleModeChange}
+        onLoginClick={() => setShowAuthModal(true)}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
@@ -198,6 +217,9 @@ export default function App() {
           />
         )}
       </div>
+
+      {/* Auth modal */}
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
     </div>
   )
 }
