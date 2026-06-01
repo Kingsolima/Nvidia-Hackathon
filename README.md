@@ -2,7 +2,7 @@
 
 > Place a proposed building anywhere on a 3D Toronto map and get instant AI impact analysis across 5 dimensions: **environmental**, **traffic**, **economic**, **infrastructure**, and **housing** — powered by NVIDIA NeMotron running locally on a DGX Spark GPU.
 
-[**Youtube Demo:**] (https://www.youtube.com/watch?v=ii_TFVcTKdI)
+[![UrbanForge Hackathon Demo](https://youtube.com)](https://www.youtube.com/watch?v=ii_TFVcTKdI)
 ---
 
 ## Quick Start
